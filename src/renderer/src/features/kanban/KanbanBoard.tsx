@@ -32,8 +32,9 @@ export function KanbanBoard({ projectKey }: KanbanBoardProps): React.JSX.Element
   const setActiveTab = useStore((s) => s.setActiveTab)
   const setView = useStore((s) => s.setView)
 
-  const board = boards.find((b) => b.projectKey === projectKey)
   const isGlobal = projectKey === GLOBAL_BOARD_PROJECT_KEY
+  const globalBoard = boards.find((b) => b.projectKey === GLOBAL_BOARD_PROJECT_KEY)
+  const board = boards.find((b) => b.projectKey === projectKey) ?? (isGlobal ? undefined : globalBoard)
 
   const cards = useMemo(
     () => (isGlobal ? allCards : allCards.filter((c) => c.projectKey === projectKey)),
@@ -136,7 +137,7 @@ export function KanbanBoard({ projectKey }: KanbanBoardProps): React.JSX.Element
     })
   }
 
-  if (!board) {
+  if (!globalBoard) {
     return <div className="kanban-board__empty">Loading board…</div>
   }
 
