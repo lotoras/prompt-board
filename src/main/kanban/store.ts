@@ -18,15 +18,46 @@ let cache: KanbanState | null = null
 function defaultColumns(): Board['columns'] {
   return [
     { id: 'todo', title: 'Todo', order: 0 },
-    { id: 'doing', title: 'Doing', order: 1 },
-    { id: 'done', title: 'Done', order: 2 }
+    { id: 'start-coding', title: 'Start coding', order: 1 },
+    { id: 'doing', title: 'Doing', order: 2 },
+    { id: 'done', title: 'Done', order: 3 }
   ]
+}
+
+function migrateBoard(board: Board): boolean {
+  if (board.columns.some((c) => c.id === 'start-coding')) return false
+
+  const todo = board.columns.find((c) => c.id === 'todo')
+  const doing = board.columns.find((c) => c.id === 'doing')
+  const done = board.columns.find((c) => c.id === 'done')
+
+  let order: number
+  let index: number
+  if (todo && doing) {
+    order = (todo.order + doing.order) / 2
+    index = board.columns.indexOf(doing)
+  } else if (doing) {
+    order = doing.order - 1
+    index = board.columns.indexOf(doing)
+  } else if (done) {
+    order = done.order - 1
+    index = board.columns.indexOf(done)
+  } else {
+    const maxOrder = board.columns.reduce((max, c) => Math.max(max, c.order), -1)
+    order = maxOrder + 1
+    index = board.columns.length
+  }
+
+  board.columns.splice(index, 0, { id: 'start-coding', title: 'Start coding', order })
+  return true
 }
 
 async function load(): Promise<KanbanState> {
   if (cache) return cache
   cache = await readJsonFile<KanbanState>(filePath(), { boards: [], cards: [] })
   ensureBoard(cache, GLOBAL_BOARD_PROJECT_KEY)
+  const migrated = cache.boards.reduce((any, b) => migrateBoard(b) || any, false)
+  if (migrated) await persist()
   return cache
 }
 

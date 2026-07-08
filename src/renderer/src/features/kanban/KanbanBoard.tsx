@@ -7,7 +7,11 @@ import { useStore } from '../../store'
 import { between } from '../../lib/fractionalIndex'
 import { Column } from './Column'
 import { CardEditorModal } from './CardEditorModal'
+import { canStartInClaude, startInClaude } from './startInClaude'
 import './kanban.css'
+
+const START_CODING_COLUMN_ID = 'start-coding'
+const DOING_COLUMN_ID = 'doing'
 
 interface KanbanBoardProps {
   projectKey: string
@@ -23,6 +27,10 @@ export function KanbanBoard({ projectKey }: KanbanBoardProps): React.JSX.Element
   const projects = useStore((s) => s.projects)
   const mutateBoard = useStore((s) => s.mutateBoard)
   const setEditingCardId = useStore((s) => s.setEditingCardId)
+  const setPendingCardLink = useStore((s) => s.setPendingCardLink)
+  const addTerminal = useStore((s) => s.addTerminal)
+  const setActiveTab = useStore((s) => s.setActiveTab)
+  const setView = useStore((s) => s.setView)
 
   const board = boards.find((b) => b.projectKey === projectKey)
   const isGlobal = projectKey === GLOBAL_BOARD_PROJECT_KEY
@@ -65,6 +73,25 @@ export function KanbanBoard({ projectKey }: KanbanBoardProps): React.JSX.Element
       const overCard = cards.find((c) => c.id === over.id)
       if (!overCard) return
       targetColumnId = overCard.columnId
+    }
+
+    if (targetColumnId === START_CODING_COLUMN_ID) {
+      const project = projectsByKey.get(activeCard.projectKey)
+      if (!canStartInClaude(project)) return
+
+      const doingSiblings = (cardsByColumn.get(DOING_COLUMN_ID) ?? []).filter(
+        (c) => c.id !== activeCard.id
+      )
+      const order = between(doingSiblings[doingSiblings.length - 1]?.order, undefined)
+
+      startInClaude(activeCard, project!, {
+        setPendingCardLink,
+        addTerminal,
+        setActiveTab,
+        setView
+      })
+      mutateBoard({ type: 'moveCard', id: activeCard.id, columnId: DOING_COLUMN_ID, order })
+      return
     }
 
     const siblings = (cardsByColumn.get(targetColumnId) ?? []).filter((c) => c.id !== activeCard.id)

@@ -22,11 +22,12 @@ export function Column({
   onAddCard
 }: ColumnProps): React.JSX.Element {
   const { setNodeRef } = useDroppable({ id: column.id })
+  const isActionColumn = column.id === 'start-coding'
 
   return (
-    <div className="kanban-column">
+    <div className={`kanban-column${isActionColumn ? ' kanban-column--action' : ''}`}>
       <div className="kanban-column__header">
-        <span>{column.title}</span>
+        <span>{isActionColumn ? '▶ ' : ''}{column.title}</span>
         <button type="button" className="kanban-column__add" onClick={onAddCard}>
           +
         </button>

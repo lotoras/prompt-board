@@ -4,6 +4,7 @@ import { GLOBAL_BOARD_PROJECT_KEY } from '../../../../shared/types'
 import { useStore } from '../../store'
 import { api } from '../../lib/api'
 import { TagInput } from './TagInput'
+import { canStartInClaude, startInClaude } from './startInClaude'
 import './kanban.css'
 
 interface CardEditorFormProps {
@@ -26,7 +27,7 @@ function CardEditorForm({ card, onClose }: CardEditorFormProps): React.JSX.Eleme
   const [cardProjectKey, setCardProjectKey] = useState(card.projectKey)
 
   const targetProject = projects.find((p) => p.projectKey === cardProjectKey)
-  const canStart = capsPty && targetProject !== undefined && targetProject.basePath !== ''
+  const canStart = canStartInClaude(targetProject)
 
   const handleSave = async (): Promise<void> => {
     await mutateBoard({
@@ -44,12 +45,12 @@ function CardEditorForm({ card, onClose }: CardEditorFormProps): React.JSX.Eleme
 
   const handleStart = async (): Promise<void> => {
     if (!targetProject) return
-    const query = body ? `${title}\n\n${body}` : title
-    const { ptyId } = await api.pty.spawn({ projectKey: targetProject.projectKey, initialQuery: query })
-    setPendingCardLink(ptyId, card.id)
-    addTerminal({ ptyId, projectKey: targetProject.projectKey, title: '', status: 'running' })
-    setActiveTab(targetProject.projectKey, ptyId)
-    setView({ kind: 'project', projectKey: targetProject.projectKey, tab: 'terminals' })
+    await startInClaude(card, targetProject, {
+      setPendingCardLink,
+      addTerminal,
+      setActiveTab,
+      setView
+    })
     onClose()
   }
 

@@ -35,8 +35,9 @@ describe('kanban/store', () => {
       expect(globalBoard).toBeDefined()
       expect(globalBoard?.columns).toEqual([
         { id: 'todo', title: 'Todo', order: 0 },
-        { id: 'doing', title: 'Doing', order: 1 },
-        { id: 'done', title: 'Done', order: 2 }
+        { id: 'start-coding', title: 'Start coding', order: 1 },
+        { id: 'doing', title: 'Doing', order: 2 },
+        { id: 'done', title: 'Done', order: 3 }
       ])
     })
 
@@ -167,6 +168,41 @@ describe('kanban/store', () => {
       const state = await getBoards()
       const globalBoards = state.boards.filter((b) => b.projectKey === GLOBAL_BOARD_PROJECT_KEY)
       expect(globalBoards).toHaveLength(1)
+    })
+
+    it('migrates a persisted board without start-coding, inserting it between todo and doing on load', async () => {
+      const file = join(tmpDir, 'boards.json')
+      await fs.writeFile(
+        file,
+        JSON.stringify({
+          boards: [
+            {
+              projectKey: 'proj-old',
+              columns: [
+                { id: 'todo', title: 'Todo', order: 0 },
+                { id: 'doing', title: 'Doing', order: 1 },
+                { id: 'done', title: 'Done', order: 2 }
+              ]
+            }
+          ],
+          cards: []
+        })
+      )
+
+      const { getBoards } = await loadStore()
+      const state = await getBoards()
+      const board = state.boards.find((b) => b.projectKey === 'proj-old')!
+      const todo = board.columns.find((c) => c.id === 'todo')!
+      const startCoding = board.columns.find((c) => c.id === 'start-coding')!
+      const doing = board.columns.find((c) => c.id === 'doing')!
+      expect(startCoding).toBeDefined()
+      expect(startCoding.order).toBeGreaterThan(todo.order)
+      expect(startCoding.order).toBeLessThan(doing.order)
+
+      const raw = await fs.readFile(file, 'utf-8')
+      const persisted = JSON.parse(raw)
+      const persistedBoard = persisted.boards.find((b: { projectKey: string }) => b.projectKey === 'proj-old')
+      expect(persistedBoard.columns.some((c: { id: string }) => c.id === 'start-coding')).toBe(true)
     })
   })
 })
