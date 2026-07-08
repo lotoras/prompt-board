@@ -1,0 +1,151 @@
+.project-sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 220px;
+  min-width: 220px;
+  height: 100%;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-background-soft);
+  padding: 12px 8px;
+  gap: 4px;
+}
+
+.project-sidebar__global {
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.project-sidebar__global:hover,
+.project-sidebar__global--active {
+  background: var(--color-panel-hover);
+}
+
+.project-sidebar__list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+}
+
+.project-sidebar__add {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px dashed var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.project-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.project-row:hover,
+.project-row--active {
+  background: var(--color-panel-hover);
+}
+
+.project-row__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-attention);
+  flex-shrink: 0;
+}
+
+.project-row__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-row__count {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  background: var(--color-panel);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+.project-row__edit {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0 2px;
+  visibility: hidden;
+}
+
+.project-row:hover .project-row__edit {
+  visibility: visible;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 20px;
+  width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.modal__field input,
+.modal__field textarea {
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: var(--color-text);
+  font: inherit;
+}
+
+.modal__path-row {
+  display: flex;
+  gap: 6px;
+}
+
+.modal__path-row input {
+  flex: 1;
+}
+
+.modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.modal__delete {
+  margin-right: auto;
+  color: #f85149;
+}

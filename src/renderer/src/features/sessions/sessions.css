@@ -1,0 +1,66 @@
+.session-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  padding: 16px;
+  width: 100%;
+}
+
+.session-board__empty {
+  padding: 24px;
+  color: var(--color-text-muted);
+}
+
+.session-card {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.session-card__header {
+  display: flex;
+  justify-content: space-between;
+}
+
+.session-card__title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-card__meta {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  flex-wrap: wrap;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.status-badge--busy {
+  background: rgba(88, 166, 255, 0.2);
+  color: #58a6ff;
+}
+
+.status-badge--idle {
+  background: rgba(139, 148, 158, 0.2);
+  color: #8b949e;
+}
+
+.status-badge--waiting {
+  background: rgba(240, 165, 30, 0.2);
+  color: #f0a51e;
+}

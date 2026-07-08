@@ -1,0 +1,38 @@
+@import './base.css';
+
+:root {
+  --color-panel: #21262d;
+  --color-panel-hover: #262c34;
+  --color-border: #30363d;
+  --color-text-muted: var(--ev-c-text-2);
+  --color-accent: #58a6ff;
+  --color-attention: #f0a51e;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+  user-select: none;
+}
+
+#root {
+  display: flex;
+}
+
+code {
+  font-weight: 600;
+  padding: 3px 5px;
+  border-radius: 2px;
+  background-color: var(--color-background-mute);
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    SF Mono,
+    Menlo,
+    Consolas,
+    Liberation Mono,
+    monospace;
+  font-size: 85%;
+}
