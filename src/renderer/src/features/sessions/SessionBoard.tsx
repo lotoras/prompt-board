@@ -2,12 +2,14 @@ import { useStore } from '../../store'
 import { SessionCard } from './SessionCard'
 import './sessions.css'
 
+const EMPTY_SESSIONS: never[] = []
+
 interface SessionBoardProps {
   projectKey: string
 }
 
 export function SessionBoard({ projectKey }: SessionBoardProps): React.JSX.Element {
-  const sessions = useStore((s) => s.projectView(projectKey)?.sessions ?? [])
+  const sessions = useStore((s) => s.projectView(projectKey)?.sessions ?? EMPTY_SESSIONS)
 
   if (sessions.length === 0) {
     return <div className="session-board__empty">No active sessions for this project.</div>

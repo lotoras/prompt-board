@@ -23,7 +23,8 @@ export interface SessionInfo {
   startedAt: number
   updatedAt: number
   statusUpdatedAt: number
-  procStart: number
+  procStart?: number
+  name?: string
   aiTitle?: string
   model?: string
   totalTokens?: number

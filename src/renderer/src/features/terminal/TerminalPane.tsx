@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import { useStore } from '../../store'
 import { api } from '../../lib/api'
 import { TerminalTabStrip } from './TerminalTabStrip'
@@ -9,7 +10,7 @@ interface TerminalPaneProps {
 }
 
 export function TerminalPane({ projectKey }: TerminalPaneProps): React.JSX.Element {
-  const terminals = useStore((s) => s.terminalsFor(projectKey))
+  const terminals = useStore(useShallow((s) => s.terminalsFor(projectKey)))
   const activePtyId = useStore((s) => s.activeTabByProject[projectKey])
   const addTerminal = useStore((s) => s.addTerminal)
   const closeTerminal = useStore((s) => s.closeTerminal)

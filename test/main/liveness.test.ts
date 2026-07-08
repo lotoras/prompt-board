@@ -125,6 +125,30 @@ describe('filterAliveSessions', () => {
       expect(result).toEqual([session])
     })
 
+    it('keeps a session without procStart when osStart is at or before startedAt', async () => {
+      vi.spyOn(process, 'kill').mockReturnValue(true)
+      const session = makeSession({ pid: 1000, startedAt: 1_700_000_000_000, procStart: undefined })
+      execFileMock.mockResolvedValue({
+        stdout: JSON.stringify({ Id: 1000, StartTime: '/Date(1700000000000)/' })
+      })
+
+      const { filterAliveSessions } = await loadLiveness()
+      const result = await filterAliveSessions([session])
+      expect(result).toEqual([session])
+    })
+
+    it('drops a session without procStart when osStart is far after startedAt (pid reuse)', async () => {
+      vi.spyOn(process, 'kill').mockReturnValue(true)
+      const session = makeSession({ pid: 1000, startedAt: 1_700_000_000_000, procStart: undefined })
+      execFileMock.mockResolvedValue({
+        stdout: JSON.stringify({ Id: 1000, StartTime: '/Date(1700000060000)/' })
+      })
+
+      const { filterAliveSessions } = await loadLiveness()
+      const result = await filterAliveSessions([session])
+      expect(result).toEqual([])
+    })
+
     it('parses the legacy /Date(...)/ format correctly', async () => {
       vi.spyOn(process, 'kill').mockReturnValue(true)
       const session = makeSession({ pid: 1000, procStart: 1_700_000_000_000 })

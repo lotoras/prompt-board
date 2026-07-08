@@ -8,7 +8,7 @@ interface SessionCardProps {
 }
 
 export function SessionCard({ session }: SessionCardProps): React.JSX.Element {
-  const title = session.aiTitle ?? session.sessionId
+  const title = session.aiTitle ?? session.name ?? session.sessionId
 
   return (
     <div className="session-card">

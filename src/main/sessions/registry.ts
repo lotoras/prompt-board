@@ -24,7 +24,6 @@ function parseRegistryFile(raw: unknown): SessionInfo | null {
   if (typeof startedAt !== 'number') return null
   if (typeof updatedAt !== 'number') return null
   if (typeof statusUpdatedAt !== 'number') return null
-  if (typeof procStart !== 'number') return null
 
   const info: SessionInfo = {
     pid,
@@ -33,11 +32,12 @@ function parseRegistryFile(raw: unknown): SessionInfo | null {
     status: status as SessionStatus,
     startedAt,
     updatedAt,
-    statusUpdatedAt,
-    procStart
+    statusUpdatedAt
   }
 
+  if (typeof procStart === 'number') info.procStart = procStart
   if (typeof raw.waitingFor === 'string') info.waitingFor = raw.waitingFor
+  if (typeof raw.name === 'string') info.name = raw.name
 
   return info
 }

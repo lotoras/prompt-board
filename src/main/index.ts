@@ -22,6 +22,10 @@ if (!gotLock) {
   app.quit()
 }
 
+if (is.dev) {
+  app.commandLine.appendSwitch('remote-debugging-port', '9222')
+}
+
 function createWindow(): void {
   // Create the browser window.
   const win = new BrowserWindow({

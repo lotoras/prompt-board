@@ -118,6 +118,11 @@ export async function filterAliveSessions(sessions: SessionInfo[]): Promise<Sess
   return alive.filter((s) => {
     const osStart = startTimes.get(s.pid)
     if (osStart === undefined) return true
-    return Math.abs(osStart - s.procStart) <= START_TIME_TOLERANCE_MS
+    if (typeof s.procStart === 'number') {
+      return Math.abs(osStart - s.procStart) <= START_TIME_TOLERANCE_MS
+    }
+    // No procStart recorded: a reused pid's process necessarily starts after
+    // this session was registered, so a much-later osStart implies reuse.
+    return osStart <= s.startedAt + START_TIME_TOLERANCE_MS
   })
 }
