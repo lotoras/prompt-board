@@ -39,6 +39,18 @@ interface RemoteCardRow {
   device_id: string
 }
 
+function errMessage(e: unknown): string {
+  if (e && typeof e === 'object' && 'message' in e && typeof (e as { message: unknown }).message === 'string') {
+    return (e as { message: string }).message
+  }
+  if (typeof e === 'string') return e
+  try {
+    return JSON.stringify(e)
+  } catch {
+    return String(e)
+  }
+}
+
 const SUPABASE_OPTS = { auth: { persistSession: false, autoRefreshToken: true } }
 const MIN_BACKOFF_MS = 1000
 const MAX_BACKOFF_MS = 60000
@@ -189,7 +201,7 @@ async function flush(): Promise<void> {
     setStatus({ pendingOps: rest.length, state: 'online', lastSyncAt: Date.now(), error: undefined })
     if (rest.length > 0) scheduleFlush(0)
   } catch (err) {
-    setStatus({ state: 'offline', error: err instanceof Error ? err.message : String(err) })
+    setStatus({ state: 'offline', error: errMessage(err) })
     backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS)
     scheduleFlush(backoffMs)
   }
@@ -326,7 +338,7 @@ export async function startSync(getWindow: () => BrowserWindow | null): Promise<
     await pull(config)
     setStatus({ state: 'online', lastSyncAt: Date.now(), error: undefined })
   } catch (err) {
-    setStatus({ state: 'error', error: err instanceof Error ? err.message : String(err) })
+    setStatus({ state: 'error', error: errMessage(err) })
   }
   const pendingOps = (await loadOutbox()).ops.length
   setStatus({ pendingOps })
