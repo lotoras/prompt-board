@@ -133,3 +133,9 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.session-chip {
+  align-self: flex-start;
+  background: rgba(240, 165, 30, 0.15);
+  color: var(--color-attention);
+}

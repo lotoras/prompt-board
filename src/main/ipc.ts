@@ -1,8 +1,9 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import { IPC_CHANNELS } from '../shared/types'
-import type { KanbanMutation, ProjectInput } from '../shared/types'
+import type { KanbanMutation, ProjectInput, PtySpawnInput } from '../shared/types'
 import { mutateKanban, getBoards } from './kanban/store'
 import { createProject, deleteProject, listProjects, updateProject } from './projects/store'
+import { killPty, resizePty, spawnPty, writePty } from './pty/manager'
 import { buildSnapshot } from './sessions/snapshot'
 import { triggerSnapshotRefresh } from './sessions/watcher'
 
@@ -52,16 +53,19 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     return mutateKanban(mutation)
   })
 
-  ipcMain.handle(IPC_CHANNELS.pty.spawn, async () => {
-    throw new Error('pty not available')
+  ipcMain.handle(IPC_CHANNELS.pty.spawn, async (_event, input: PtySpawnInput) => {
+    return spawnPty(getWindow, input)
   })
-  ipcMain.handle(IPC_CHANNELS.pty.write, async () => {
-    throw new Error('pty not available')
+  ipcMain.handle(IPC_CHANNELS.pty.write, async (_event, ptyId: string, data: string) => {
+    writePty(ptyId, data)
   })
-  ipcMain.handle(IPC_CHANNELS.pty.resize, async () => {
-    throw new Error('pty not available')
-  })
-  ipcMain.handle(IPC_CHANNELS.pty.kill, async () => {
-    throw new Error('pty not available')
+  ipcMain.handle(
+    IPC_CHANNELS.pty.resize,
+    async (_event, ptyId: string, cols: number, rows: number) => {
+      resizePty(ptyId, cols, rows)
+    }
+  )
+  ipcMain.handle(IPC_CHANNELS.pty.kill, async (_event, ptyId: string) => {
+    killPty(ptyId)
   })
 }

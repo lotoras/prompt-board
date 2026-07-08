@@ -43,6 +43,7 @@ export function CardItem({
         </span>
       )}
       <div className="card-item__title">{card.title}</div>
+      {card.link && <span className="tag-chip tag-chip--sm session-chip">session</span>}
       {card.tags.length > 0 && (
         <div className="card-item__tags">
           {card.tags.map((tag) => (

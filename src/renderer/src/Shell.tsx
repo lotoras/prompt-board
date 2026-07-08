@@ -5,6 +5,7 @@ import { ProjectSidebar } from './features/projects/ProjectSidebar'
 import { ProjectEditorModal } from './features/projects/ProjectEditorModal'
 import { SessionBoard } from './features/sessions/SessionBoard'
 import { KanbanBoard } from './features/kanban/KanbanBoard'
+import { TerminalPane } from './features/terminal/TerminalPane'
 import type { ProjectTab } from './store/uiSlice'
 import './shell.css'
 
@@ -50,9 +51,7 @@ export function Shell(): React.JSX.Element {
 
             {view.tab === 'sessions' && <SessionBoard projectKey={view.projectKey} />}
             {view.tab === 'board' && <KanbanBoard projectKey={view.projectKey} />}
-            {view.tab === 'terminals' && api.caps.pty && (
-              <div className="shell__placeholder">Terminals arrive in Phase 2.</div>
-            )}
+            {view.tab === 'terminals' && api.caps.pty && <TerminalPane projectKey={view.projectKey} />}
           </>
         )}
       </main>

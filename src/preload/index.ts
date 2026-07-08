@@ -14,7 +14,7 @@ import {
 
 const api: Api = {
   caps: {
-    pty: false
+    pty: true
   },
   sessions: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.sessions.list),

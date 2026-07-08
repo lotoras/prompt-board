@@ -17,6 +17,29 @@ export function useIpcBootstrap(): void {
     loadBoards()
 
     const unsubscribe = api.sessions.onChanged(setSnapshot)
-    return unsubscribe
+
+    if (!api.caps.pty) return unsubscribe
+
+    const unsubExit = api.pty.onExit(({ ptyId }) => {
+      useStore.getState().markExited(ptyId)
+    })
+    const unsubSession = api.pty.onSession(({ ptyId, sessionId }) => {
+      const state = useStore.getState()
+      state.setSession(ptyId, sessionId)
+
+      const cardId = state.takePendingCardLink(ptyId)
+      if (!cardId) return
+
+      const terminal = state.terminals[ptyId]
+      const project = state.projects.find((p) => p.projectKey === terminal?.projectKey)
+      const cwd = project?.basePath ?? ''
+      state.mutateBoard({ type: 'updateCard', id: cardId, patch: { link: { sessionId, cwd } } })
+    })
+
+    return () => {
+      unsubscribe()
+      unsubExit()
+      unsubSession()
+    }
   }, [])
 }

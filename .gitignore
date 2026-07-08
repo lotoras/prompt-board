@@ -12,6 +12,7 @@ release/
 *.log
 npm-debug.log*
 yarn-error.log*
+.eslintcache
 
 # env / local
 .env

@@ -14,12 +14,19 @@ interface CardEditorFormProps {
 function CardEditorForm({ card, onClose }: CardEditorFormProps): React.JSX.Element {
   const projects = useStore((s) => s.projects)
   const mutateBoard = useStore((s) => s.mutateBoard)
+  const addTerminal = useStore((s) => s.addTerminal)
+  const setActiveTab = useStore((s) => s.setActiveTab)
+  const setPendingCardLink = useStore((s) => s.setPendingCardLink)
+  const setView = useStore((s) => s.setView)
   const capsPty = api.caps.pty
 
   const [title, setTitle] = useState(card.title)
   const [body, setBody] = useState(card.body)
   const [tags, setTags] = useState<string[]>(card.tags)
   const [cardProjectKey, setCardProjectKey] = useState(card.projectKey)
+
+  const targetProject = projects.find((p) => p.projectKey === cardProjectKey)
+  const canStart = capsPty && targetProject !== undefined && targetProject.basePath !== ''
 
   const handleSave = async (): Promise<void> => {
     await mutateBoard({
@@ -32,6 +39,17 @@ function CardEditorForm({ card, onClose }: CardEditorFormProps): React.JSX.Eleme
 
   const handleDelete = async (): Promise<void> => {
     await mutateBoard({ type: 'deleteCard', id: card.id })
+    onClose()
+  }
+
+  const handleStart = async (): Promise<void> => {
+    if (!targetProject) return
+    const query = body ? `${title}\n\n${body}` : title
+    const { ptyId } = await api.pty.spawn({ projectKey: targetProject.projectKey, initialQuery: query })
+    setPendingCardLink(ptyId, card.id)
+    addTerminal({ ptyId, projectKey: targetProject.projectKey, title: '', status: 'running' })
+    setActiveTab(targetProject.projectKey, ptyId)
+    setView({ kind: 'project', projectKey: targetProject.projectKey, tab: 'terminals' })
     onClose()
   }
 
@@ -70,11 +88,20 @@ function CardEditorForm({ card, onClose }: CardEditorFormProps): React.JSX.Eleme
           </label>
         ) : null}
 
+        {card.link && <span className="tag-chip session-chip">Linked session: {card.link.sessionId}</span>}
+
         <button
           type="button"
           className="modal__start-btn"
-          disabled={!capsPty}
-          title={capsPty ? undefined : 'Terminals are not available yet (Phase 2)'}
+          disabled={!canStart}
+          onClick={handleStart}
+          title={
+            !capsPty
+              ? 'Terminals are not available yet (Phase 2)'
+              : !targetProject
+                ? 'Assign a project with a base path to start a terminal'
+                : undefined
+          }
         >
           Start in Claude
         </button>
