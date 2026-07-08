@@ -1,15 +1,22 @@
-import { app } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { pathKey } from '../../shared/pathKey'
+import { IPC_CHANNELS } from '../../shared/types'
 import type { Project, ProjectInput } from '../../shared/types'
 import { readJsonFile, writeJsonFile } from '../lib/atomicWrite'
+import { enqueueProject, isApplyingRemote, nextTimestamp } from '../sync/engine'
 
 function filePath(): string {
   return join(app.getPath('userData'), 'projects.json')
 }
 
 let cache: Project[] | null = null
+let getWindowRef: (() => BrowserWindow | null) | null = null
+
+export function setWindowGetter(getWindow: () => BrowserWindow | null): void {
+  getWindowRef = getWindow
+}
 
 async function load(): Promise<Project[]> {
   if (cache) return cache
@@ -19,6 +26,13 @@ async function load(): Promise<Project[]> {
 
 async function persist(): Promise<void> {
   await writeJsonFile(filePath(), cache ?? [])
+}
+
+function broadcastChanged(): void {
+  const win = getWindowRef?.()
+  if (win && !win.isDestroyed()) {
+    win.webContents.send(IPC_CHANNELS.projects.changed, cache ?? [])
+  }
 }
 
 async function assertDirectory(basePath: string): Promise<void> {
@@ -44,7 +58,7 @@ export async function createProject(input: ProjectInput): Promise<Project> {
   if (projects.some((p) => p.projectKey === projectKey)) {
     throw new Error(`Project already exists for path: ${input.basePath}`)
   }
-  const now = Date.now()
+  const now = nextTimestamp()
   const project: Project = {
     projectKey,
     name: input.name,
@@ -54,6 +68,8 @@ export async function createProject(input: ProjectInput): Promise<Project> {
   }
   projects.push(project)
   await persist()
+  broadcastChanged()
+  if (!isApplyingRemote()) await enqueueProject(project)
   return project
 }
 
@@ -74,10 +90,12 @@ export async function updateProject(
     ...existing,
     ...patch,
     projectKey: patch.basePath ? pathKey(patch.basePath) : existing.projectKey,
-    updatedAt: Date.now()
+    updatedAt: nextTimestamp()
   }
   projects[index] = updated
   await persist()
+  broadcastChanged()
+  if (!isApplyingRemote()) await enqueueProject(updated)
   return updated
 }
 
@@ -85,6 +103,18 @@ export async function deleteProject(projectKey: string): Promise<void> {
   const projects = await load()
   const index = projects.findIndex((p) => p.projectKey === projectKey)
   if (index === -1) return
-  projects.splice(index, 1)
+  const [removed] = projects.splice(index, 1)
   await persist()
+  broadcastChanged()
+  if (!isApplyingRemote()) await enqueueProject(removed, nextTimestamp())
+}
+
+/** Applies a remote row as-is (used by the sync engine's LWW merge; never enqueues). */
+export async function applyRemoteProject(project: Project): Promise<void> {
+  const projects = await load()
+  const index = projects.findIndex((p) => p.projectKey === project.projectKey)
+  if (index === -1) projects.push(project)
+  else projects[index] = project
+  await persist()
+  broadcastChanged()
 }

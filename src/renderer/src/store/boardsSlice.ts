@@ -5,6 +5,7 @@ import type { StoreState } from './index'
 
 export interface BoardsSlice {
   boards: KanbanState
+  setBoards: (boards: KanbanState) => void
   loadBoards: () => Promise<void>
   cardsFor: (projectKey: string) => KanbanCard[]
   mutateBoard: (mutation: KanbanMutation) => Promise<void>
@@ -12,6 +13,7 @@ export interface BoardsSlice {
 
 export const createBoardsSlice: StateCreator<StoreState, [], [], BoardsSlice> = (set, get) => ({
   boards: { boards: [], cards: [] },
+  setBoards: (boards) => set({ boards }),
   loadBoards: async () => {
     const boards = await api.kanban.getBoards()
     set({ boards })

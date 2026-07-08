@@ -3,6 +3,7 @@ import { api } from './lib/api'
 import { GLOBAL_BOARD_PROJECT_KEY } from '../../shared/types'
 import { ProjectSidebar } from './features/projects/ProjectSidebar'
 import { ProjectEditorModal } from './features/projects/ProjectEditorModal'
+import { SyncSettingsModal } from './features/sync/SyncSettingsModal'
 import { SessionBoard } from './features/sessions/SessionBoard'
 import { KanbanBoard } from './features/kanban/KanbanBoard'
 import { TerminalPane } from './features/terminal/TerminalPane'
@@ -56,6 +57,7 @@ export function Shell(): React.JSX.Element {
         )}
       </main>
       <ProjectEditorModal />
+      <SyncSettingsModal />
     </div>
   )
 }

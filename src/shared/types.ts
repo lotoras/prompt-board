@@ -114,6 +114,39 @@ export type KanbanMutation =
   | { type: 'upsertBoard'; board: Board }
 
 // ---------------------------------------------------------------------------
+// Sync (Supabase multi-device sync)
+// ---------------------------------------------------------------------------
+
+export interface SyncSession {
+  accessToken: string
+  refreshToken: string
+}
+
+export interface SyncConfig {
+  url: string
+  anonKey: string
+  email: string
+  session?: SyncSession
+  deviceId: string
+}
+
+export type SyncState = 'disabled' | 'connecting' | 'online' | 'offline' | 'error'
+
+export interface SyncStatus {
+  state: SyncState
+  pendingOps: number
+  lastSyncAt?: number
+  error?: string
+}
+
+export interface SyncConfigureInput {
+  url: string
+  anonKey: string
+  email: string
+  password: string
+}
+
+// ---------------------------------------------------------------------------
 // Pty (Phase 2 — types defined now, implemented later)
 // ---------------------------------------------------------------------------
 
@@ -151,11 +184,19 @@ export const IPC_CHANNELS = {
     create: 'projects:create',
     update: 'projects:update',
     delete: 'projects:delete',
-    pickDirectory: 'projects:pickDirectory'
+    pickDirectory: 'projects:pickDirectory',
+    changed: 'projects:changed'
   },
   kanban: {
     getBoards: 'kanban:getBoards',
-    mutate: 'kanban:mutate'
+    mutate: 'kanban:mutate',
+    changed: 'kanban:changed'
+  },
+  sync: {
+    getStatus: 'sync:getStatus',
+    configure: 'sync:configure',
+    signOut: 'sync:signOut',
+    status: 'sync:status'
   },
   pty: {
     spawn: 'pty:spawn',
@@ -186,10 +227,18 @@ export interface Api {
     update(projectKey: string, patch: Partial<ProjectInput>): Promise<Project>
     delete(projectKey: string): Promise<void>
     pickDirectory(): Promise<string | null>
+    onChanged(cb: (projects: Project[]) => void): () => void
   }
   kanban: {
     getBoards(): Promise<KanbanState>
     mutate(mutation: KanbanMutation): Promise<KanbanState>
+    onChanged(cb: (state: KanbanState) => void): () => void
+  }
+  sync: {
+    getStatus(): Promise<SyncStatus>
+    configure(input: SyncConfigureInput): Promise<SyncStatus>
+    signOut(): Promise<void>
+    onStatus(cb: (status: SyncStatus) => void): () => void
   }
   pty: {
     spawn(input: PtySpawnInput): Promise<{ ptyId: string }>

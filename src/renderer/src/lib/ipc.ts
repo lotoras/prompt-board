@@ -11,14 +11,28 @@ export function useIpcBootstrap(): void {
     const setSnapshot = useStore.getState().setSnapshot
     const loadProjects = useStore.getState().loadProjects
     const loadBoards = useStore.getState().loadBoards
+    const setProjects = useStore.getState().setProjects
+    const setBoards = useStore.getState().setBoards
+    const setSyncStatus = useStore.getState().setSyncStatus
 
     api.sessions.list().then(setSnapshot)
     loadProjects()
     loadBoards()
+    api.sync.getStatus().then(setSyncStatus)
 
     const unsubscribe = api.sessions.onChanged(setSnapshot)
+    const unsubProjects = api.projects.onChanged(setProjects)
+    const unsubBoards = api.kanban.onChanged(setBoards)
+    const unsubSyncStatus = api.sync.onStatus(setSyncStatus)
 
-    if (!api.caps.pty) return unsubscribe
+    if (!api.caps.pty) {
+      return () => {
+        unsubscribe()
+        unsubProjects()
+        unsubBoards()
+        unsubSyncStatus()
+      }
+    }
 
     const unsubExit = api.pty.onExit(({ ptyId }) => {
       useStore.getState().markExited(ptyId)
@@ -38,6 +52,9 @@ export function useIpcBootstrap(): void {
 
     return () => {
       unsubscribe()
+      unsubProjects()
+      unsubBoards()
+      unsubSyncStatus()
       unsubExit()
       unsubSession()
     }

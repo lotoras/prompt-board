@@ -3,12 +3,16 @@ import {
   IPC_CHANNELS,
   type Api,
   type KanbanMutation,
+  type KanbanState,
+  type Project,
   type ProjectInput,
   type PtyDataEvent,
   type PtyExitEvent,
   type PtySessionEvent,
   type PtySpawnInput,
-  type SessionsSnapshot
+  type SessionsSnapshot,
+  type SyncConfigureInput,
+  type SyncStatus
 } from '../shared/types'
 
 const api: Api = {
@@ -29,11 +33,31 @@ const api: Api = {
     update: (projectKey: string, patch: Partial<ProjectInput>) =>
       ipcRenderer.invoke(IPC_CHANNELS.projects.update, projectKey, patch),
     delete: (projectKey: string) => ipcRenderer.invoke(IPC_CHANNELS.projects.delete, projectKey),
-    pickDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.projects.pickDirectory)
+    pickDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.projects.pickDirectory),
+    onChanged: (cb: (projects: Project[]) => void) => {
+      const listener = (_event: unknown, projects: Project[]): void => cb(projects)
+      ipcRenderer.on(IPC_CHANNELS.projects.changed, listener)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.projects.changed, listener)
+    }
   },
   kanban: {
     getBoards: () => ipcRenderer.invoke(IPC_CHANNELS.kanban.getBoards),
-    mutate: (mutation: KanbanMutation) => ipcRenderer.invoke(IPC_CHANNELS.kanban.mutate, mutation)
+    mutate: (mutation: KanbanMutation) => ipcRenderer.invoke(IPC_CHANNELS.kanban.mutate, mutation),
+    onChanged: (cb: (state: KanbanState) => void) => {
+      const listener = (_event: unknown, state: KanbanState): void => cb(state)
+      ipcRenderer.on(IPC_CHANNELS.kanban.changed, listener)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.kanban.changed, listener)
+    }
+  },
+  sync: {
+    getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.sync.getStatus),
+    configure: (input: SyncConfigureInput) => ipcRenderer.invoke(IPC_CHANNELS.sync.configure, input),
+    signOut: () => ipcRenderer.invoke(IPC_CHANNELS.sync.signOut),
+    onStatus: (cb: (status: SyncStatus) => void) => {
+      const listener = (_event: unknown, status: SyncStatus): void => cb(status)
+      ipcRenderer.on(IPC_CHANNELS.sync.status, listener)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.sync.status, listener)
+    }
   },
   pty: {
     spawn: (input: PtySpawnInput) => ipcRenderer.invoke(IPC_CHANNELS.pty.spawn, input),

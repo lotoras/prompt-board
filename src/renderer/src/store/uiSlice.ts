@@ -19,6 +19,8 @@ export interface UiSlice {
   setEditingCardId: (id: string | null) => void
   projectModal: ProjectModalState | null
   setProjectModal: (modal: ProjectModalState | null) => void
+  syncModalOpen: boolean
+  setSyncModalOpen: (open: boolean) => void
 }
 
 const STORAGE_KEY = 'prompt-board:ui:view'
@@ -60,5 +62,7 @@ export const createUiSlice: StateCreator<StoreState, [], [], UiSlice> = (set, ge
   editingCardId: null,
   setEditingCardId: (id) => set({ editingCardId: id }),
   projectModal: null,
-  setProjectModal: (modal) => set({ projectModal: modal })
+  setProjectModal: (modal) => set({ projectModal: modal }),
+  syncModalOpen: false,
+  setSyncModalOpen: (open) => set({ syncModalOpen: open })
 })

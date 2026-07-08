@@ -1,5 +1,7 @@
 import { useStore } from '../../store'
 import { ProjectRow } from './ProjectRow'
+import { syncDotColor } from '../sync/syncStatus'
+import '../sync/sync.css'
 import './projects.css'
 
 export function ProjectSidebar(): React.JSX.Element {
@@ -7,6 +9,8 @@ export function ProjectSidebar(): React.JSX.Element {
   const view = useStore((s) => s.view)
   const setView = useStore((s) => s.setView)
   const setProjectModal = useStore((s) => s.setProjectModal)
+  const syncStatus = useStore((s) => s.syncStatus)
+  const setSyncModalOpen = useStore((s) => s.setSyncModalOpen)
 
   const isGlobalActive = view.kind === 'global-board'
 
@@ -46,6 +50,11 @@ export function ProjectSidebar(): React.JSX.Element {
       >
         + New project
       </button>
+
+      <div className="project-sidebar__footer" onClick={() => setSyncModalOpen(true)}>
+        <span className={`sync-dot sync-dot--${syncDotColor(syncStatus)}`} />
+        <span>Sync</span>
+      </div>
     </aside>
   )
 }

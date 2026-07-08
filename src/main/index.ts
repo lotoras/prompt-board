@@ -3,8 +3,11 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpcHandlers } from './ipc'
+import { setWindowGetter as setKanbanWindowGetter } from './kanban/store'
+import { setWindowGetter as setProjectsWindowGetter } from './projects/store'
 import { killAllPtys } from './pty/manager'
 import { startSessionsWatcher, stopSessionsWatcher } from './sessions/watcher'
+import { startSync, stopSync } from './sync/engine'
 
 process.on('uncaughtException', (err) => {
   console.error('[main] uncaughtException', err)
@@ -97,10 +100,13 @@ if (gotLock) {
     ipcMain.on('ping', () => console.log('pong'))
 
     registerIpcHandlers(() => mainWindow)
+    setProjectsWindowGetter(() => mainWindow)
+    setKanbanWindowGetter(() => mainWindow)
 
     createWindow()
 
     startSessionsWatcher(() => mainWindow)
+    void startSync(() => mainWindow)
 
     app.on('activate', function () {
       // On macOS it's common to re-create a window in the app when the
@@ -115,6 +121,7 @@ if (gotLock) {
 // explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
   stopSessionsWatcher()
+  stopSync()
   if (process.platform !== 'darwin') {
     app.quit()
   }

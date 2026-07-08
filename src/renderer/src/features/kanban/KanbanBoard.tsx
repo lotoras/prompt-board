@@ -18,7 +18,11 @@ interface KanbanBoardProps {
 }
 
 function sortByOrder(cards: KanbanCard[]): KanbanCard[] {
-  return [...cards].sort((a, b) => (a.order < b.order ? -1 : a.order > b.order ? 1 : 0))
+  return [...cards].sort((a, b) => {
+    if (a.order < b.order) return -1
+    if (a.order > b.order) return 1
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+  })
 }
 
 export function KanbanBoard({ projectKey }: KanbanBoardProps): React.JSX.Element {

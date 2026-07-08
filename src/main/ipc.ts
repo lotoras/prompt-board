@@ -1,11 +1,12 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import { IPC_CHANNELS } from '../shared/types'
-import type { KanbanMutation, ProjectInput, PtySpawnInput } from '../shared/types'
+import type { KanbanMutation, ProjectInput, PtySpawnInput, SyncConfigureInput } from '../shared/types'
 import { mutateKanban, getBoards } from './kanban/store'
 import { createProject, deleteProject, listProjects, updateProject } from './projects/store'
 import { killPty, resizePty, spawnPty, writePty } from './pty/manager'
 import { buildSnapshot } from './sessions/snapshot'
 import { triggerSnapshotRefresh } from './sessions/watcher'
+import { configure, getSyncStatus, signOut } from './sync/engine'
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(IPC_CHANNELS.sessions.list, async () => {
@@ -67,5 +68,15 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   )
   ipcMain.handle(IPC_CHANNELS.pty.kill, async (_event, ptyId: string) => {
     killPty(ptyId)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.sync.getStatus, async () => {
+    return getSyncStatus()
+  })
+  ipcMain.handle(IPC_CHANNELS.sync.configure, async (_event, input: SyncConfigureInput) => {
+    return configure(input, getWindow)
+  })
+  ipcMain.handle(IPC_CHANNELS.sync.signOut, async () => {
+    await signOut()
   })
 }
