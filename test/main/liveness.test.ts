@@ -149,6 +149,22 @@ describe('filterAliveSessions', () => {
       expect(result).toEqual([])
     })
 
+    it('keeps a session with a numeric non-epoch procStart (Windows FILETIME value) when osStart matches startedAt', async () => {
+      vi.spyOn(process, 'kill').mockReturnValue(true)
+      const session = makeSession({
+        pid: 1000,
+        startedAt: 1_700_000_000_000,
+        procStart: 639192693629791370
+      })
+      execFileMock.mockResolvedValue({
+        stdout: JSON.stringify({ Id: 1000, StartTime: '/Date(1700000000000)/' })
+      })
+
+      const { filterAliveSessions } = await loadLiveness()
+      const result = await filterAliveSessions([session])
+      expect(result).toEqual([session])
+    })
+
     it('parses the legacy /Date(...)/ format correctly', async () => {
       vi.spyOn(process, 'kill').mockReturnValue(true)
       const session = makeSession({ pid: 1000, procStart: 1_700_000_000_000 })

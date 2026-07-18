@@ -1,4 +1,5 @@
 import { pathKey } from '../../shared/pathKey'
+import { sessionNeedsAttention } from '../../shared/types'
 import type { Project, ProjectView, SessionInfo, SessionsSnapshot } from '../../shared/types'
 
 function lastPathSegment(cwd: string): string {
@@ -43,7 +44,7 @@ export function mergeSessions(
       name: project.name,
       basePath: project.basePath,
       source: sessions.length > 0 ? 'both' : 'manual',
-      needsAttention: sessions.some((s) => s.status === 'waiting'),
+      needsAttention: sessions.some(sessionNeedsAttention),
       sessions
     })
   }
@@ -54,7 +55,7 @@ export function mergeSessions(
       projectKey: key,
       name: lastPathSegment(sessions[0].cwd),
       source: 'auto',
-      needsAttention: sessions.some((s) => s.status === 'waiting'),
+      needsAttention: sessions.some(sessionNeedsAttention),
       sessions
     })
   }

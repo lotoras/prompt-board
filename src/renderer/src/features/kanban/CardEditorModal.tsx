@@ -4,7 +4,7 @@ import { GLOBAL_BOARD_PROJECT_KEY } from '../../../../shared/types'
 import { useStore } from '../../store'
 import { api } from '../../lib/api'
 import { TagInput } from './TagInput'
-import { canStartInClaude, startInClaude } from './startInClaude'
+import { canStartInClaude, resumeSession, startInClaude } from './startInClaude'
 import './kanban.css'
 
 interface CardEditorFormProps {
@@ -19,6 +19,7 @@ function CardEditorForm({ card, onClose }: CardEditorFormProps): React.JSX.Eleme
   const setActiveTab = useStore((s) => s.setActiveTab)
   const setPendingCardLink = useStore((s) => s.setPendingCardLink)
   const setView = useStore((s) => s.setView)
+  const terminals = useStore((s) => s.terminals)
   const capsPty = api.caps.pty
 
   const [title, setTitle] = useState(card.title)
@@ -51,6 +52,20 @@ function CardEditorForm({ card, onClose }: CardEditorFormProps): React.JSX.Eleme
       setActiveTab,
       setView
     })
+    onClose()
+  }
+
+  const handleResume = async (): Promise<void> => {
+    if (!targetProject || !card.link) return
+    const live = Object.values(terminals).find(
+      (t) => t.sessionId === card.link!.sessionId && t.status === 'running'
+    )
+    if (live) {
+      setActiveTab(live.projectKey, live.ptyId)
+      setView({ kind: 'project', projectKey: live.projectKey, tab: 'terminals' })
+    } else {
+      await resumeSession(card, targetProject, { setPendingCardLink, addTerminal, setActiveTab, setView })
+    }
     onClose()
   }
 
@@ -90,6 +105,24 @@ function CardEditorForm({ card, onClose }: CardEditorFormProps): React.JSX.Eleme
         ) : null}
 
         {card.link && <span className="tag-chip session-chip">Linked session: {card.link.sessionId}</span>}
+
+        {card.link && (
+          <button
+            type="button"
+            className="modal__start-btn"
+            disabled={!canStart}
+            onClick={handleResume}
+            title={
+              !capsPty
+                ? 'Terminals are not available yet (Phase 2)'
+                : !targetProject
+                  ? 'Assign a project with a base path to start a terminal'
+                  : undefined
+            }
+          >
+            Resume session
+          </button>
+        )}
 
         <button
           type="button"

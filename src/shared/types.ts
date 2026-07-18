@@ -28,6 +28,15 @@ export interface SessionInfo {
   aiTitle?: string
   model?: string
   totalTokens?: number
+  acknowledged?: boolean
+}
+
+export function sessionNeedsAttention(s: SessionInfo): boolean {
+  return s.status === 'waiting' || (s.status === 'idle' && !s.acknowledged)
+}
+
+export function isIdleUnacknowledged(s: SessionInfo): boolean {
+  return s.status === 'idle' && !s.acknowledged
 }
 
 export type ProjectSource = 'manual' | 'auto' | 'both'
@@ -128,6 +137,14 @@ export interface SyncConfig {
   email: string
   session?: SyncSession
   deviceId: string
+  encryptedPassword?: string
+}
+
+export interface SyncConfigView {
+  url: string
+  anonKey: string
+  email: string
+  hasPassword: boolean
 }
 
 export type SyncState = 'disabled' | 'connecting' | 'online' | 'offline' | 'error'
@@ -153,11 +170,13 @@ export interface SyncConfigureInput {
 export interface PtySpawnInput {
   projectKey: string
   initialQuery?: string
+  resumeSessionId?: string
 }
 
 export interface PtyDataEvent {
   ptyId: string
   data: string
+  replay?: boolean
 }
 
 export interface PtyExitEvent {
@@ -170,6 +189,17 @@ export interface PtySessionEvent {
   sessionId: string
 }
 
+export interface PersistedTerminal {
+  projectKey: string
+  sessionId: string
+  title: string
+}
+
+export interface PersistedTerminalsState {
+  terminals: PersistedTerminal[] // in tab order
+  activeSessionByProject: Record<string, string> // projectKey -> active sessionId
+}
+
 // ---------------------------------------------------------------------------
 // IPC channel name constants
 // ---------------------------------------------------------------------------
@@ -177,7 +207,8 @@ export interface PtySessionEvent {
 export const IPC_CHANNELS = {
   sessions: {
     list: 'sessions:list',
-    changed: 'sessions:changed'
+    changed: 'sessions:changed',
+    acknowledge: 'sessions:acknowledge'
   },
   projects: {
     list: 'projects:list',
@@ -196,16 +227,28 @@ export const IPC_CHANNELS = {
     getStatus: 'sync:getStatus',
     configure: 'sync:configure',
     signOut: 'sync:signOut',
-    status: 'sync:status'
+    status: 'sync:status',
+    getConfig: 'sync:getConfig'
   },
   pty: {
     spawn: 'pty:spawn',
     write: 'pty:write',
     resize: 'pty:resize',
     kill: 'pty:kill',
+    attach: 'pty:attach',
     data: 'pty:data',
     exit: 'pty:exit',
-    session: 'pty:session'
+    session: 'pty:session',
+    loadPersisted: 'pty:loadPersisted',
+    savePersisted: 'pty:savePersisted'
+  },
+  clipboard: {
+    writeText: 'clipboard:writeText',
+    readText: 'clipboard:readText'
+  },
+  window: {
+    getInset: 'window:getInset',
+    insetChanged: 'window:insetChanged'
   }
 } as const
 
@@ -219,6 +262,7 @@ export interface Api {
   }
   sessions: {
     list(): Promise<SessionsSnapshot>
+    acknowledge(sessionId: string, statusUpdatedAt: number): Promise<void>
     onChanged(cb: (snapshot: SessionsSnapshot) => void): () => void
   }
   projects: {
@@ -238,6 +282,7 @@ export interface Api {
     getStatus(): Promise<SyncStatus>
     configure(input: SyncConfigureInput): Promise<SyncStatus>
     signOut(): Promise<void>
+    getConfig(): Promise<SyncConfigView | null>
     onStatus(cb: (status: SyncStatus) => void): () => void
   }
   pty: {
@@ -245,8 +290,20 @@ export interface Api {
     write(ptyId: string, data: string): Promise<void>
     resize(ptyId: string, cols: number, rows: number): Promise<void>
     kill(ptyId: string): Promise<void>
+    attach(ptyId: string): Promise<void>
+    getPathForFile(file: File): string
     onData(cb: (payload: PtyDataEvent) => void): () => void
     onExit(cb: (payload: PtyExitEvent) => void): () => void
     onSession(cb: (payload: PtySessionEvent) => void): () => void
+    loadPersisted(): Promise<PersistedTerminalsState>
+    savePersisted(state: PersistedTerminalsState): Promise<void>
+  }
+  clipboard: {
+    writeText(text: string): Promise<void>
+    readText(): Promise<string>
+  }
+  window: {
+    getInset(): Promise<number>
+    onInsetChanged(cb: (inset: number) => void): () => void
   }
 }

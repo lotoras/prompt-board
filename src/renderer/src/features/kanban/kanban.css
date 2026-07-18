@@ -68,6 +68,12 @@
   opacity: 0.5;
 }
 
+.card-item--overlay {
+  cursor: grabbing;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  transform: rotate(2deg);
+}
+
 .card-item__project-chip {
   align-self: flex-start;
   font-size: 10px;

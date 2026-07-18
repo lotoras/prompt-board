@@ -8,6 +8,7 @@ import { setWindowGetter as setProjectsWindowGetter } from './projects/store'
 import { killAllPtys } from './pty/manager'
 import { startSessionsWatcher, stopSessionsWatcher } from './sessions/watcher'
 import { startSync, stopSync } from './sync/engine'
+import { attachWindowInset } from './window/inset'
 
 process.on('uncaughtException', (err) => {
   console.error('[main] uncaughtException', err)
@@ -25,8 +26,9 @@ if (!gotLock) {
   app.quit()
 }
 
-if (is.dev) {
-  app.commandLine.appendSwitch('remote-debugging-port', '9222')
+const remoteDebugPort = process.env.ELECTRON_REMOTE_DEBUG_PORT
+if (gotLock && is.dev && remoteDebugPort) {
+  app.commandLine.appendSwitch('remote-debugging-port', remoteDebugPort)
 }
 
 function createWindow(): void {
@@ -45,6 +47,7 @@ function createWindow(): void {
     }
   })
   mainWindow = win
+  attachWindowInset(win)
 
   win.on('ready-to-show', () => {
     win.show()

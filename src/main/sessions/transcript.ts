@@ -135,22 +135,27 @@ export async function tailTranscript(filePath: string): Promise<TranscriptEnrich
   }
 
   if (stat.size > state.offset) {
-    const handle = await fs.open(filePath, 'r')
     try {
-      const length = stat.size - state.offset
-      const buffer = Buffer.alloc(length)
-      await handle.read(buffer, 0, length, state.offset)
-      state.offset = stat.size
+      const handle = await fs.open(filePath, 'r')
+      try {
+        const length = stat.size - state.offset
+        const buffer = Buffer.alloc(length)
+        await handle.read(buffer, 0, length, state.offset)
+        state.offset = stat.size
 
-      const chunk = state.remainder + buffer.toString('utf-8')
-      const lines = chunk.split('\n')
-      state.remainder = lines.pop() ?? ''
+        const chunk = state.remainder + buffer.toString('utf-8')
+        const lines = chunk.split('\n')
+        state.remainder = lines.pop() ?? ''
 
-      for (const line of lines) {
-        applyLine(state, line)
+        for (const line of lines) {
+          applyLine(state, line)
+        }
+      } finally {
+        await handle.close()
       }
-    } finally {
-      await handle.close()
+    } catch (err) {
+      console.error('tailTranscript read failed', err)
+      return { aiTitle: state.aiTitle, model: state.model, totalTokens: state.totalTokens }
     }
   }
 

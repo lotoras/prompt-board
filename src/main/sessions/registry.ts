@@ -35,6 +35,7 @@ function parseRegistryFile(raw: unknown): SessionInfo | null {
     statusUpdatedAt
   }
 
+  // Windows writes procStart as a non-epoch string; intentionally ignored (only numeric epoch-ms is accepted).
   if (typeof procStart === 'number') info.procStart = procStart
   if (typeof raw.waitingFor === 'string') info.waitingFor = raw.waitingFor
   if (typeof raw.name === 'string') info.name = raw.name

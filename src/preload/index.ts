@@ -1,9 +1,10 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import {
   IPC_CHANNELS,
   type Api,
   type KanbanMutation,
   type KanbanState,
+  type PersistedTerminalsState,
   type Project,
   type ProjectInput,
   type PtyDataEvent,
@@ -12,6 +13,7 @@ import {
   type PtySpawnInput,
   type SessionsSnapshot,
   type SyncConfigureInput,
+  type SyncConfigView,
   type SyncStatus
 } from '../shared/types'
 
@@ -21,6 +23,8 @@ const api: Api = {
   },
   sessions: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.sessions.list),
+    acknowledge: (sessionId: string, statusUpdatedAt: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.sessions.acknowledge, sessionId, statusUpdatedAt),
     onChanged: (cb: (snapshot: SessionsSnapshot) => void) => {
       const listener = (_event: unknown, snapshot: SessionsSnapshot): void => cb(snapshot)
       ipcRenderer.on(IPC_CHANNELS.sessions.changed, listener)
@@ -53,6 +57,7 @@ const api: Api = {
     getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.sync.getStatus),
     configure: (input: SyncConfigureInput) => ipcRenderer.invoke(IPC_CHANNELS.sync.configure, input),
     signOut: () => ipcRenderer.invoke(IPC_CHANNELS.sync.signOut),
+    getConfig: (): Promise<SyncConfigView | null> => ipcRenderer.invoke(IPC_CHANNELS.sync.getConfig),
     onStatus: (cb: (status: SyncStatus) => void) => {
       const listener = (_event: unknown, status: SyncStatus): void => cb(status)
       ipcRenderer.on(IPC_CHANNELS.sync.status, listener)
@@ -65,6 +70,8 @@ const api: Api = {
     resize: (ptyId: string, cols: number, rows: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.pty.resize, ptyId, cols, rows),
     kill: (ptyId: string) => ipcRenderer.invoke(IPC_CHANNELS.pty.kill, ptyId),
+    attach: (ptyId: string) => ipcRenderer.invoke(IPC_CHANNELS.pty.attach, ptyId),
+    getPathForFile: (file: File) => webUtils.getPathForFile(file),
     onData: (cb: (payload: PtyDataEvent) => void) => {
       const listener = (_event: unknown, payload: PtyDataEvent): void => cb(payload)
       ipcRenderer.on(IPC_CHANNELS.pty.data, listener)
@@ -79,6 +86,22 @@ const api: Api = {
       const listener = (_event: unknown, payload: PtySessionEvent): void => cb(payload)
       ipcRenderer.on(IPC_CHANNELS.pty.session, listener)
       return () => ipcRenderer.removeListener(IPC_CHANNELS.pty.session, listener)
+    },
+    loadPersisted: (): Promise<PersistedTerminalsState> =>
+      ipcRenderer.invoke(IPC_CHANNELS.pty.loadPersisted),
+    savePersisted: (state: PersistedTerminalsState): Promise<void> =>
+      ipcRenderer.invoke(IPC_CHANNELS.pty.savePersisted, state)
+  },
+  clipboard: {
+    writeText: (text: string) => ipcRenderer.invoke(IPC_CHANNELS.clipboard.writeText, text),
+    readText: () => ipcRenderer.invoke(IPC_CHANNELS.clipboard.readText)
+  },
+  window: {
+    getInset: () => ipcRenderer.invoke(IPC_CHANNELS.window.getInset),
+    onInsetChanged: (cb: (inset: number) => void) => {
+      const listener = (_event: unknown, inset: number): void => cb(inset)
+      ipcRenderer.on(IPC_CHANNELS.window.insetChanged, listener)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.window.insetChanged, listener)
     }
   }
 }

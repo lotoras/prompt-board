@@ -29,6 +29,10 @@
   --color-background-mute: var(--ev-c-black-mute);
 
   --color-text: var(--ev-c-text-1);
+
+  --status-busy: #58a6ff;
+  --status-idle: #8b949e;
+  --status-waiting: #f0a51e;
 }
 
 *,

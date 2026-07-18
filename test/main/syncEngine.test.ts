@@ -3,17 +3,32 @@ import { promises as fs } from 'fs'
 import os from 'os'
 import { join } from 'path'
 
-const { userDataDir, supabaseState } = vi.hoisted(() => ({
+const { userDataDir, supabaseState, safeStorageState } = vi.hoisted(() => ({
   userDataDir: { current: '' },
   supabaseState: {
     projects: [] as Record<string, unknown>[],
     cards: [] as Record<string, unknown>[],
-    upsertImpl: null as null | ((table: string, row: unknown) => { error: unknown } | Promise<{ error: unknown }>)
-  }
+    upsertImpl: null as null | ((table: string, row: unknown) => { error: unknown } | Promise<{ error: unknown }>),
+    authCallback: null as null | ((event: string, session: unknown) => void),
+    getUserImpl: null as null | (() => { data: { user: unknown }; error: unknown }),
+    signInWithPasswordImpl: null as
+      | null
+      | (() => {
+          data: { session: { access_token: string; refresh_token: string } | null }
+          error: unknown
+        }),
+    signInWithPasswordCalls: 0
+  },
+  safeStorageState: { available: true }
 }))
 
 vi.mock('electron', () => ({
-  app: { getPath: () => userDataDir.current }
+  app: { getPath: () => userDataDir.current },
+  safeStorage: {
+    isEncryptionAvailable: () => safeStorageState.available,
+    encryptString: (s: string) => Buffer.from(s, 'utf8'),
+    decryptString: (b: Buffer) => b.toString('utf8')
+  }
 }))
 
 vi.mock('@supabase/supabase-js', () => {
@@ -21,10 +36,24 @@ vi.mock('@supabase/supabase-js', () => {
     return {
       auth: {
         setSession: vi.fn(async () => ({ error: null })),
-        signInWithPassword: vi.fn(async () => ({
-          data: { session: { access_token: 'remote-at', refresh_token: 'remote-rt' } },
-          error: null
-        }))
+        getUser: vi.fn(async () =>
+          supabaseState.getUserImpl
+            ? supabaseState.getUserImpl()
+            : { data: { user: { id: 'user-1' } }, error: null }
+        ),
+        signInWithPassword: vi.fn(async () => {
+          supabaseState.signInWithPasswordCalls += 1
+          return supabaseState.signInWithPasswordImpl
+            ? supabaseState.signInWithPasswordImpl()
+            : {
+                data: { session: { access_token: 'remote-at', refresh_token: 'remote-rt' } },
+                error: null
+              }
+        }),
+        onAuthStateChange: vi.fn((cb: (event: string, session: unknown) => void) => {
+          supabaseState.authCallback = cb
+          return { data: { subscription: { unsubscribe: vi.fn() } } }
+        })
       },
       from(table: string) {
         return {
@@ -67,6 +96,11 @@ describe('sync/engine', () => {
     supabaseState.projects = []
     supabaseState.cards = []
     supabaseState.upsertImpl = null
+    supabaseState.authCallback = null
+    supabaseState.getUserImpl = null
+    supabaseState.signInWithPasswordImpl = null
+    supabaseState.signInWithPasswordCalls = 0
+    safeStorageState.available = true
     tmpDir = await fs.mkdtemp(join(os.tmpdir(), 'sync-engine-'))
     userDataDir.current = tmpDir
     projectDir = await fs.mkdtemp(join(os.tmpdir(), 'sync-engine-basepath-'))
@@ -271,7 +305,8 @@ describe('sync/engine', () => {
         saveOutbox: async (state: typeof outboxState) => {
           outboxState = state
         },
-        resetSyncCaches: () => {}
+        resetSyncCaches: () => {},
+        saveSessionTokens: async () => {}
       }))
 
       vi.useFakeTimers()
@@ -363,6 +398,161 @@ describe('sync/engine', () => {
       expect(parsed.session).toEqual({ accessToken: 'remote-at', refreshToken: 'remote-rt' })
       expect(raw).not.toContain('super-secret')
       expect(raw).not.toContain('password')
+    })
+
+    it('persists an encrypted password that decrypts back to the input password', async () => {
+      const { engine, config } = await loadModules()
+      await engine.configure(
+        { url: 'https://x.supabase.co', anonKey: 'anon', email: 'a@b.com', password: 'super-secret' },
+        () => null
+      )
+      const saved = await config.loadSyncConfig()
+      expect(saved?.encryptedPassword).toBeTruthy()
+      const decoded = Buffer.from(saved!.encryptedPassword!, 'base64').toString('utf8')
+      expect(decoded).toBe('super-secret')
+    })
+
+    it('persists rotated session tokens to sync.json on TOKEN_REFRESHED', async () => {
+      const { engine, config } = await loadModules()
+      await configureSync(config)
+      await engine.startSync(() => null)
+
+      supabaseState.authCallback?.('TOKEN_REFRESHED', {
+        access_token: 'rotated-at',
+        refresh_token: 'rotated-rt'
+      })
+
+      await vi.waitFor(async () => {
+        const raw = await fs.readFile(join(tmpDir, 'sync.json'), 'utf-8')
+        expect(JSON.parse(raw).session).toEqual({ accessToken: 'rotated-at', refreshToken: 'rotated-rt' })
+      })
+    })
+  })
+
+  describe('self-healing auth', () => {
+    async function configureWithEncryptedPassword(
+      config: Awaited<ReturnType<typeof loadModules>>['config'],
+      overrides: { session?: { accessToken: string; refreshToken: string } } = {}
+    ): Promise<void> {
+      await config.saveSyncConfig({
+        url: 'https://x.supabase.co',
+        anonKey: 'anon-key',
+        email: 'a@b.com',
+        deviceId: 'local-device',
+        session: overrides.session,
+        encryptedPassword: Buffer.from('stored-secret', 'utf8').toString('base64')
+      })
+    }
+
+    it('re-authenticates from the stored password when there is no saved session', async () => {
+      const { engine, config } = await loadModules()
+      await configureWithEncryptedPassword(config)
+
+      await engine.startSync(() => null)
+
+      expect(engine.getSyncStatus().state).toBe('online')
+      expect(supabaseState.signInWithPasswordCalls).toBe(1)
+      const raw = await fs.readFile(join(tmpDir, 'sync.json'), 'utf-8')
+      expect(JSON.parse(raw).session).toEqual({ accessToken: 'remote-at', refreshToken: 'remote-rt' })
+    })
+
+    it('re-authenticates from the stored password when the saved session is invalid', async () => {
+      const { engine, config } = await loadModules()
+      await configureWithEncryptedPassword(config, { session: { accessToken: 'stale-at', refreshToken: 'stale-rt' } })
+      supabaseState.getUserImpl = () => ({ data: { user: null }, error: { message: 'invalid token' } })
+
+      await engine.startSync(() => null)
+
+      expect(engine.getSyncStatus().state).toBe('online')
+      expect(supabaseState.signInWithPasswordCalls).toBe(1)
+      const raw = await fs.readFile(join(tmpDir, 'sync.json'), 'utf-8')
+      expect(JSON.parse(raw).session).toEqual({ accessToken: 'remote-at', refreshToken: 'remote-rt' })
+    })
+
+    it('sets state to error with "Sign-in required" when there is no session and no stored password', async () => {
+      const { engine, config } = await loadModules()
+      await config.saveSyncConfig({
+        url: 'https://x.supabase.co',
+        anonKey: 'anon-key',
+        email: 'a@b.com',
+        deviceId: 'local-device'
+      })
+
+      await engine.startSync(() => null)
+
+      expect(engine.getSyncStatus()).toMatchObject({ state: 'error', error: 'Sign-in required' })
+      expect(supabaseState.signInWithPasswordCalls).toBe(0)
+    })
+
+    it('sets state to error with "Sign-in required" when decrypting the stored password fails', async () => {
+      const { engine, config } = await loadModules()
+      await configureWithEncryptedPassword(config)
+      safeStorageState.available = false
+
+      await engine.startSync(() => null)
+
+      expect(engine.getSyncStatus()).toMatchObject({ state: 'error', error: 'Sign-in required' })
+      expect(supabaseState.signInWithPasswordCalls).toBe(0)
+    })
+
+    it('sets state to error with "Sign-in required" when re-authentication with the stored password fails', async () => {
+      const { engine, config } = await loadModules()
+      await configureWithEncryptedPassword(config)
+      supabaseState.signInWithPasswordImpl = () => ({
+        data: { session: null },
+        error: { message: 'invalid credentials' }
+      })
+
+      await engine.startSync(() => null)
+
+      expect(engine.getSyncStatus()).toMatchObject({ state: 'error', error: 'Sign-in required' })
+      expect(supabaseState.signInWithPasswordCalls).toBe(1)
+    })
+  })
+
+  describe('getConfigView', () => {
+    it('returns null when no config is stored', async () => {
+      const { engine } = await loadModules()
+      expect(await engine.getConfigView()).toBeNull()
+    })
+
+    it('returns non-secret fields with hasPassword true and never leaks the password or session', async () => {
+      const { engine, config } = await loadModules()
+      await config.saveSyncConfig({
+        url: 'https://x.supabase.co',
+        anonKey: 'anon-key',
+        email: 'a@b.com',
+        deviceId: 'local-device',
+        session: { accessToken: 'at', refreshToken: 'rt' },
+        encryptedPassword: Buffer.from('stored-secret', 'utf8').toString('base64')
+      })
+
+      const view = await engine.getConfigView()
+
+      expect(view).toEqual({
+        url: 'https://x.supabase.co',
+        anonKey: 'anon-key',
+        email: 'a@b.com',
+        hasPassword: true
+      })
+      const serialized = JSON.stringify(view)
+      expect(serialized).not.toContain('stored-secret')
+      expect(serialized).not.toContain('accessToken')
+      expect(serialized).not.toContain('"at"')
+    })
+
+    it('returns hasPassword false when no password is stored', async () => {
+      const { engine, config } = await loadModules()
+      await config.saveSyncConfig({
+        url: 'https://x.supabase.co',
+        anonKey: 'anon-key',
+        email: 'a@b.com',
+        deviceId: 'local-device'
+      })
+
+      const view = await engine.getConfigView()
+
+      expect(view?.hasPassword).toBe(false)
     })
   })
 })

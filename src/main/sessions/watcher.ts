@@ -15,14 +15,18 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null
 let lastSnapshotJson = ''
 
 async function recomputeAndEmit(getWindow: () => BrowserWindow | null): Promise<void> {
-  const snapshot = await buildSnapshot()
-  reconcilePendingSpawns(snapshot, getWindow)
-  const json = JSON.stringify(snapshot)
-  if (json === lastSnapshotJson) return
-  lastSnapshotJson = json
-  const win = getWindow()
-  if (win && !win.isDestroyed()) {
-    win.webContents.send(IPC_CHANNELS.sessions.changed, snapshot)
+  try {
+    const snapshot = await buildSnapshot()
+    reconcilePendingSpawns(snapshot, getWindow)
+    const json = JSON.stringify(snapshot)
+    if (json === lastSnapshotJson) return
+    lastSnapshotJson = json
+    const win = getWindow()
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(IPC_CHANNELS.sessions.changed, snapshot)
+    }
+  } catch (err) {
+    console.error('recomputeAndEmit failed', err)
   }
 }
 

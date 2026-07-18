@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { promises as fs } from 'fs'
 import os from 'os'
 import { join } from 'path'
@@ -150,6 +150,29 @@ describe('tailTranscript', () => {
       const filePath = tmpFile('does-not-exist.jsonl')
       const result = await tailTranscript(filePath)
       expect(result).toEqual({ aiTitle: undefined, model: undefined, totalTokens: 0 })
+    })
+
+    it('returns the current enrichment state without throwing when fs.open rejects', async () => {
+      const filePath = tmpFile('t9.jsonl')
+      await fs.writeFile(
+        filePath,
+        `${JSON.stringify({ message: { model: 'claude-x', usage: { input_tokens: 5 } } })}\n`,
+        'utf-8'
+      )
+      const seeded = await tailTranscript(filePath)
+      expect(seeded).toEqual({ aiTitle: undefined, model: 'claude-x', totalTokens: 5 })
+
+      await fs.appendFile(
+        filePath,
+        `${JSON.stringify({ message: { model: 'claude-y', usage: { input_tokens: 3 } } })}\n`,
+        'utf-8'
+      )
+      const openSpy = vi.spyOn(fs, 'open').mockRejectedValue(new Error('EBUSY'))
+
+      const result = await tailTranscript(filePath)
+      expect(result).toEqual({ aiTitle: undefined, model: 'claude-x', totalTokens: 5 })
+
+      openSpy.mockRestore()
     })
   })
 })

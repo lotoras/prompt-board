@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useStore } from '../../store'
 import { api } from '../../lib/api'
 import { formatRelativeTime } from '../../lib/format'
@@ -18,8 +18,24 @@ function SyncSettingsForm({ onClose }: SyncSettingsFormProps): React.JSX.Element
   const [anonKey, setAnonKey] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [passwordSaved, setPasswordSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
+  const [reconnecting, setReconnecting] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    api.sync.getConfig().then((config) => {
+      if (!active || !config) return
+      setUrl(config.url)
+      setAnonKey(config.anonKey)
+      setEmail(config.email)
+      setPasswordSaved(config.hasPassword)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
 
   const handleConnect = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
@@ -29,6 +45,7 @@ function SyncSettingsForm({ onClose }: SyncSettingsFormProps): React.JSX.Element
       const status = await api.sync.configure({ url, anonKey, email, password })
       setSyncStatus(status)
       if (status.state === 'error') setError(status.error ?? 'Failed to connect')
+      else setReconnecting(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to connect')
     } finally {
@@ -46,7 +63,7 @@ function SyncSettingsForm({ onClose }: SyncSettingsFormProps): React.JSX.Element
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleConnect}>
         <h2>Sync settings</h2>
 
-        {configured ? (
+        {configured && !reconnecting ? (
           <div className="sync-modal__status">
             <span className={`sync-dot sync-dot--${syncDotColor(syncStatus)}`} />
             <span>
@@ -54,6 +71,7 @@ function SyncSettingsForm({ onClose }: SyncSettingsFormProps): React.JSX.Element
               {syncStatus.pendingOps > 0 && ` · ${syncStatus.pendingOps} pending`}
               {syncStatus.lastSyncAt && ` · synced ${formatRelativeTime(syncStatus.lastSyncAt)}`}
             </span>
+            {syncStatus.error && <span className="sync-modal__error">{syncStatus.error}</span>}
           </div>
         ) : (
           <>
@@ -78,6 +96,7 @@ function SyncSettingsForm({ onClose }: SyncSettingsFormProps): React.JSX.Element
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                placeholder={passwordSaved ? '•••••• (saved)' : undefined}
               />
             </label>
           </>
@@ -86,15 +105,26 @@ function SyncSettingsForm({ onClose }: SyncSettingsFormProps): React.JSX.Element
         {error && <div className="sync-modal__error">{error}</div>}
 
         <div className="modal__actions">
-          {configured && (
+          {configured && !reconnecting && (
             <button type="button" className="modal__delete" onClick={handleSignOut}>
               Sign out
+            </button>
+          )}
+          {configured && !reconnecting && (
+            <button
+              type="button"
+              onClick={() => {
+                setError(null)
+                setReconnecting(true)
+              }}
+            >
+              Reconnect
             </button>
           )}
           <button type="button" onClick={onClose}>
             Close
           </button>
-          {!configured && (
+          {(!configured || reconnecting) && (
             <button type="submit" disabled={connecting}>
               {connecting ? 'Connecting…' : 'Connect'}
             </button>

@@ -71,12 +71,14 @@ describe('mergeSessions', () => {
       expect(result.projects[0].sessions).toHaveLength(2)
     })
 
-    it('sets needsAttention only when a session is waiting', () => {
+    it('sets needsAttention based on status and acknowledgement', () => {
       const busy = mergeSessions([], [makeSession({ status: 'busy' })])
-      const idle = mergeSessions([], [makeSession({ status: 'idle' })])
+      const idleUnacked = mergeSessions([], [makeSession({ status: 'idle' })])
+      const idleAcked = mergeSessions([], [makeSession({ status: 'idle', acknowledged: true })])
       const waiting = mergeSessions([], [makeSession({ status: 'waiting' })])
       expect(busy.projects[0].needsAttention).toBe(false)
-      expect(idle.projects[0].needsAttention).toBe(false)
+      expect(idleUnacked.projects[0].needsAttention).toBe(true)
+      expect(idleAcked.projects[0].needsAttention).toBe(false)
       expect(waiting.projects[0].needsAttention).toBe(true)
     })
 
@@ -87,8 +89,18 @@ describe('mergeSessions', () => {
         status: 'waiting',
         updatedAt: 1
       })
-      const recentProject = makeSession({ pid: 2, cwd: 'C:\\recent', updatedAt: 100 })
-      const staleProject = makeSession({ pid: 3, cwd: 'C:\\stale', updatedAt: 10 })
+      const recentProject = makeSession({
+        pid: 2,
+        cwd: 'C:\\recent',
+        updatedAt: 100,
+        acknowledged: true
+      })
+      const staleProject = makeSession({
+        pid: 3,
+        cwd: 'C:\\stale',
+        updatedAt: 10,
+        acknowledged: true
+      })
 
       const result = mergeSessions([], [staleProject, recentProject, attentionProject])
       const names = result.projects.map((p) => p.name)

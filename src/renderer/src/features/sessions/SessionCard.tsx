@@ -1,5 +1,6 @@
-import type { SessionInfo } from '../../../../shared/types'
+import { isIdleUnacknowledged, type SessionInfo } from '../../../../shared/types'
 import { formatRelativeTime, formatTokens } from '../../lib/format'
+import { api } from '../../lib/api'
 import { StatusBadge } from './StatusBadge'
 import './sessions.css'
 
@@ -13,7 +14,12 @@ export function SessionCard({ session }: SessionCardProps): React.JSX.Element {
   return (
     <div className="session-card">
       <div className="session-card__header">
-        <StatusBadge status={session.status} waitingFor={session.waitingFor} />
+        <StatusBadge
+          status={session.status}
+          waitingFor={session.waitingFor}
+          dismissable={isIdleUnacknowledged(session)}
+          onAcknowledge={() => api.sessions.acknowledge(session.sessionId, session.statusUpdatedAt)}
+        />
       </div>
       <div className="session-card__title" title={title}>
         {title}

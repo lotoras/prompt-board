@@ -42,6 +42,15 @@ export async function saveSyncConfig(config: SyncConfig | null): Promise<void> {
   await writeJsonFile(configPath(), config)
 }
 
+export async function saveSessionTokens(session: {
+  accessToken: string
+  refreshToken: string
+}): Promise<void> {
+  const config = await loadSyncConfig()
+  if (!config) return
+  await saveSyncConfig({ ...config, session })
+}
+
 export async function loadOutbox(): Promise<OutboxState> {
   if (outboxCache) return outboxCache
   outboxCache = await readJsonFile<OutboxState>(outboxPath(), { ops: [] })

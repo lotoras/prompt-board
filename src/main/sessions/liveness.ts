@@ -11,6 +11,10 @@ let startTimeCache: Map<number, number> = new Map()
 let cacheFetchedAt = 0
 let inflightFetch: Promise<Map<number, number>> | null = null
 
+function isPlausibleEpochMs(value: number): boolean {
+  return value > 946684800000 && value < 4102444800000
+}
+
 function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)
@@ -118,7 +122,7 @@ export async function filterAliveSessions(sessions: SessionInfo[]): Promise<Sess
   return alive.filter((s) => {
     const osStart = startTimes.get(s.pid)
     if (osStart === undefined) return true
-    if (typeof s.procStart === 'number') {
+    if (typeof s.procStart === 'number' && isPlausibleEpochMs(s.procStart)) {
       return Math.abs(osStart - s.procStart) <= START_TIME_TOLERANCE_MS
     }
     // No procStart recorded: a reused pid's process necessarily starts after

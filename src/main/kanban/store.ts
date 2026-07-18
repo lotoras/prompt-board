@@ -89,9 +89,7 @@ function ensureBoard(state: KanbanState, projectKey: string): Board {
 }
 
 export async function getBoards(): Promise<KanbanState> {
-  const state = await load()
-  await persist()
-  return state
+  return load()
 }
 
 export async function mutateKanban(mutation: KanbanMutation): Promise<KanbanState> {

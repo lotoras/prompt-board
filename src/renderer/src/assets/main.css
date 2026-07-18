@@ -19,6 +19,7 @@ body,
 
 #root {
   display: flex;
+  padding-bottom: var(--app-bottom-inset, 0);
 }
 
 code {

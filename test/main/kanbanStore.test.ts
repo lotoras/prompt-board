@@ -162,6 +162,14 @@ describe('kanban/store', () => {
       await expect(fs.access(`${file}.tmp`)).rejects.toThrow()
     })
 
+    it('does not persist boards.json on a plain read with no existing file', async () => {
+      const { getBoards } = await loadStore()
+      const state = await getBoards()
+      const globalBoard = state.boards.find((b) => b.projectKey === GLOBAL_BOARD_PROJECT_KEY)
+      expect(globalBoard).toBeDefined()
+      await expect(fs.access(join(tmpDir, 'boards.json'))).rejects.toThrow()
+    })
+
     it('does not duplicate the global board on repeated getBoards calls', async () => {
       const { getBoards } = await loadStore()
       await getBoards()

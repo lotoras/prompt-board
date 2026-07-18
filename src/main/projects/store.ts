@@ -20,7 +20,12 @@ export function setWindowGetter(getWindow: () => BrowserWindow | null): void {
 
 async function load(): Promise<Project[]> {
   if (cache) return cache
-  cache = await readJsonFile<Project[]>(filePath(), [])
+  try {
+    cache = await readJsonFile<Project[]>(filePath(), [])
+  } catch (err) {
+    console.error('failed to load projects.json', err)
+    cache = []
+  }
   return cache
 }
 

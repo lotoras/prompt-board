@@ -11,6 +11,11 @@
   color: var(--color-text-muted);
 }
 
+.session-board__error {
+  padding: 8px 16px;
+  color: var(--status-waiting);
+}
+
 .session-card {
   background: var(--color-panel);
   border: 1px solid var(--color-border);
@@ -52,15 +57,40 @@
 
 .status-badge--busy {
   background: rgba(88, 166, 255, 0.2);
-  color: #58a6ff;
+  color: var(--status-busy);
 }
 
 .status-badge--idle {
   background: rgba(139, 148, 158, 0.2);
-  color: #8b949e;
+  color: var(--status-idle);
 }
 
 .status-badge--waiting {
   background: rgba(240, 165, 30, 0.2);
-  color: #f0a51e;
+  color: var(--status-waiting);
+}
+
+.status-badge--attention {
+  background: rgba(240, 165, 30, 0.2);
+  color: var(--status-waiting);
+}
+
+.status-badge__dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: currentColor;
+  border: none;
+  padding: 0;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.status-badge__dot--dismissable {
+  cursor: pointer;
+}
+
+.status-badge__dot--dismissable:hover {
+  box-shadow: 0 0 0 3px rgba(240, 165, 30, 0.25);
 }

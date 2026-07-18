@@ -34,3 +34,18 @@ export async function startInClaude(
   actions.setActiveTab(project.projectKey, ptyId)
   actions.setView({ kind: 'project', projectKey: project.projectKey, tab: 'terminals' })
 }
+
+export async function resumeSession(
+  card: KanbanCard,
+  project: Project,
+  actions: StartInClaudeActions
+): Promise<void> {
+  if (!card.link) return
+  const { ptyId } = await api.pty.spawn({
+    projectKey: project.projectKey,
+    resumeSessionId: card.link.sessionId
+  })
+  actions.addTerminal({ ptyId, projectKey: project.projectKey, title: '', status: 'running' })
+  actions.setActiveTab(project.projectKey, ptyId)
+  actions.setView({ kind: 'project', projectKey: project.projectKey, tab: 'terminals' })
+}

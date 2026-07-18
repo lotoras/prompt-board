@@ -1,17 +1,31 @@
-import { useMemo } from 'react'
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
-import type { DragEndEvent } from '@dnd-kit/core'
+import { useMemo, useState } from 'react'
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  pointerWithin,
+  rectIntersection,
+  useSensor,
+  useSensors
+} from '@dnd-kit/core'
+import type { CollisionDetection, DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import type { KanbanCard } from '../../../../shared/types'
 import { GLOBAL_BOARD_PROJECT_KEY } from '../../../../shared/types'
 import { useStore } from '../../store'
 import { between } from '../../lib/fractionalIndex'
 import { Column } from './Column'
+import { CardItemOverlay } from './CardItem'
 import { CardEditorModal } from './CardEditorModal'
 import { canStartInClaude, startInClaude } from './startInClaude'
 import './kanban.css'
 
 const START_CODING_COLUMN_ID = 'start-coding'
 const DOING_COLUMN_ID = 'doing'
+
+const collisionStrategy: CollisionDetection = (args) => {
+  const pointer = pointerWithin(args)
+  return pointer.length ? pointer : rectIntersection(args)
+}
 
 interface KanbanBoardProps {
   projectKey: string
@@ -64,7 +78,11 @@ export function KanbanBoard({ projectKey }: KanbanBoardProps): React.JSX.Element
 
   const columnIds = new Set(columns.map((c) => c.id))
 
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const activeCard = activeId ? cards.find((c) => c.id === activeId) : undefined
+
   const handleDragEnd = (event: DragEndEvent): void => {
+    setActiveId(null)
     const { active, over } = event
     if (!over) return
 
@@ -82,20 +100,33 @@ export function KanbanBoard({ projectKey }: KanbanBoardProps): React.JSX.Element
 
     if (targetColumnId === START_CODING_COLUMN_ID) {
       const project = projectsByKey.get(activeCard.projectKey)
-      if (!canStartInClaude(project)) return
+      if (!canStartInClaude(project)) {
+        console.warn('Cannot start coding: project unresolved or missing base path', {
+          cardId: activeCard.id,
+          projectKey: activeCard.projectKey,
+          hasProject: project !== undefined
+        })
+        return
+      }
 
       const doingSiblings = (cardsByColumn.get(DOING_COLUMN_ID) ?? []).filter(
         (c) => c.id !== activeCard.id
       )
       const order = between(doingSiblings[doingSiblings.length - 1]?.order, undefined)
 
-      startInClaude(activeCard, project!, {
-        setPendingCardLink,
-        addTerminal,
-        setActiveTab,
-        setView
-      })
-      mutateBoard({ type: 'moveCard', id: activeCard.id, columnId: DOING_COLUMN_ID, order })
+      void (async () => {
+        try {
+          await startInClaude(activeCard, project!, {
+            setPendingCardLink,
+            addTerminal,
+            setActiveTab,
+            setView
+          })
+          mutateBoard({ type: 'moveCard', id: activeCard.id, columnId: DOING_COLUMN_ID, order })
+        } catch (err) {
+          console.error('Failed to start coding for card', activeCard.id, err)
+        }
+      })()
       return
     }
 
@@ -147,7 +178,13 @@ export function KanbanBoard({ projectKey }: KanbanBoardProps): React.JSX.Element
 
   return (
     <>
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={collisionStrategy}
+        onDragStart={(e: DragStartEvent) => setActiveId(String(e.active.id))}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => setActiveId(null)}
+      >
         <div className="kanban-board">
           {columns.map((column) => (
             <Column
@@ -161,6 +198,15 @@ export function KanbanBoard({ projectKey }: KanbanBoardProps): React.JSX.Element
             />
           ))}
         </div>
+        <DragOverlay>
+          {activeCard ? (
+            <CardItemOverlay
+              card={activeCard}
+              showProjectTag={isGlobal}
+              projectName={projectsByKey.get(activeCard.projectKey)?.name}
+            />
+          ) : null}
+        </DragOverlay>
       </DndContext>
       <CardEditorModal />
     </>

@@ -8,9 +8,18 @@ import type {
   Project,
   SyncConfig,
   SyncConfigureInput,
+  SyncConfigView,
   SyncStatus
 } from '../../shared/types'
-import { loadOutbox, loadSyncConfig, saveOutbox, saveSyncConfig, type OutboxOp } from './config'
+import {
+  loadOutbox,
+  loadSyncConfig,
+  saveOutbox,
+  saveSessionTokens,
+  saveSyncConfig,
+  type OutboxOp
+} from './config'
+import { decryptSecret, encryptSecret } from './secret'
 import { applyRemoteProject, deleteProject, listProjects } from '../projects/store'
 import { applyRemoteCard, deleteCardById, getBoards } from '../kanban/store'
 
@@ -57,6 +66,7 @@ const MAX_BACKOFF_MS = 60000
 
 let client: SupabaseClient | null = null
 let channel: RealtimeChannel | null = null
+let authSub: { unsubscribe: () => void } | null = null
 let flushTimer: ReturnType<typeof setTimeout> | null = null
 let backoffMs = MIN_BACKOFF_MS
 let getWindowRef: (() => BrowserWindow | null) | null = null
@@ -323,16 +333,52 @@ function subscribeRealtime(config: SyncConfig): void {
 export async function startSync(getWindow: () => BrowserWindow | null): Promise<void> {
   getWindowRef = getWindow
   const config = await loadSyncConfig()
-  if (!config || !config.session) {
+  if (!config) {
     setStatus({ state: 'disabled', pendingOps: 0 })
     return
   }
   setStatus({ state: 'connecting' })
   client = createClient(config.url, config.anonKey, SUPABASE_OPTS)
-  await client.auth.setSession({
-    access_token: config.session.accessToken,
-    refresh_token: config.session.refreshToken
+  const { data: authListener } = client.auth.onAuthStateChange((event, session) => {
+    if ((event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') && session) {
+      void saveSessionTokens({
+        accessToken: session.access_token,
+        refreshToken: session.refresh_token
+      })
+    }
   })
+  authSub = authListener.subscription
+
+  let authed = false
+  if (config.session) {
+    await client.auth.setSession({
+      access_token: config.session.accessToken,
+      refresh_token: config.session.refreshToken
+    })
+    const { error } = await client.auth.getUser()
+    authed = !error
+  }
+  if (!authed && config.encryptedPassword) {
+    const pw = decryptSecret(config.encryptedPassword)
+    if (pw) {
+      const { data, error } = await client.auth.signInWithPassword({
+        email: config.email,
+        password: pw
+      })
+      if (!error && data.session) {
+        await saveSessionTokens({
+          accessToken: data.session.access_token,
+          refreshToken: data.session.refresh_token
+        })
+        authed = true
+      }
+    }
+  }
+  if (!authed) {
+    setStatus({ state: 'error', error: 'Sign-in required' })
+    return
+  }
+
   subscribeRealtime(config)
   try {
     await pull(config)
@@ -349,6 +395,10 @@ export function stopSync(): void {
   if (channel) {
     void channel.unsubscribe()
     channel = null
+  }
+  if (authSub) {
+    authSub.unsubscribe()
+    authSub = null
   }
   if (flushTimer) {
     clearTimeout(flushTimer)
@@ -380,7 +430,8 @@ export async function configure(
     session: {
       accessToken: data.session.access_token,
       refreshToken: data.session.refresh_token
-    }
+    },
+    encryptedPassword: encryptSecret(input.password) ?? undefined
   }
   await saveSyncConfig(config)
   stopSync()
@@ -392,4 +443,15 @@ export async function signOut(): Promise<void> {
   stopSync()
   await saveSyncConfig(null)
   await saveOutbox({ ops: [] })
+}
+
+export async function getConfigView(): Promise<SyncConfigView | null> {
+  const config = await loadSyncConfig()
+  if (!config) return null
+  return {
+    url: config.url,
+    anonKey: config.anonKey,
+    email: config.email,
+    hasPassword: !!config.encryptedPassword
+  }
 }

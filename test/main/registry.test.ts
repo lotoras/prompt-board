@@ -60,6 +60,25 @@ describe('readRegistry', () => {
     expect(result[0].procStart).toBe(12345)
   })
 
+  it('parses a registry file when procStart is a Windows non-epoch string, dropping only procStart', async () => {
+    await writeSession('30018.json', {
+      pid: 30018,
+      sessionId: 'af31',
+      cwd: 'C:\\a\\proj',
+      startedAt: 1,
+      status: 'busy',
+      updatedAt: 2,
+      statusUpdatedAt: 2,
+      procStart: '639192693629791370'
+    })
+
+    const { readRegistry } = await import('../../src/main/sessions/registry')
+    const result = await readRegistry()
+    expect(result).toHaveLength(1)
+    expect(result[0].procStart).toBeUndefined()
+    expect(result[0].pid).toBe(30018)
+  })
+
   it('skips a file missing required fields', async () => {
     await writeSession('bad.json', { pid: 1 })
 

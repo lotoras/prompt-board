@@ -1,17 +1,39 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { BrowserWindow, clipboard, dialog, ipcMain } from 'electron'
 import { IPC_CHANNELS } from '../shared/types'
-import type { KanbanMutation, ProjectInput, PtySpawnInput, SyncConfigureInput } from '../shared/types'
+import type {
+  KanbanMutation,
+  PersistedTerminalsState,
+  ProjectInput,
+  PtySpawnInput,
+  SyncConfigureInput
+} from '../shared/types'
 import { mutateKanban, getBoards } from './kanban/store'
 import { createProject, deleteProject, listProjects, updateProject } from './projects/store'
-import { killPty, resizePty, spawnPty, writePty } from './pty/manager'
+import { attachPty, killPty, resizePty, spawnPty, writePty } from './pty/manager'
+import { loadPersisted, savePersisted } from './pty/persistence'
+import { acknowledgeSession } from './sessions/acks'
 import { buildSnapshot } from './sessions/snapshot'
 import { triggerSnapshotRefresh } from './sessions/watcher'
-import { configure, getSyncStatus, signOut } from './sync/engine'
+import { configure, getConfigView, getSyncStatus, signOut } from './sync/engine'
+import { computeBottomInset } from './window/inset'
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(IPC_CHANNELS.sessions.list, async () => {
-    return buildSnapshot()
+    try {
+      return await buildSnapshot()
+    } catch (err) {
+      console.error('sessions:list failed', err)
+      return { projects: [] }
+    }
   })
+
+  ipcMain.handle(
+    IPC_CHANNELS.sessions.acknowledge,
+    async (_event, sessionId: string, statusUpdatedAt: number) => {
+      await acknowledgeSession(sessionId, statusUpdatedAt)
+      triggerSnapshotRefresh(getWindow)
+    }
+  )
 
   ipcMain.handle(IPC_CHANNELS.projects.list, async () => {
     return listProjects()
@@ -69,6 +91,23 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IPC_CHANNELS.pty.kill, async (_event, ptyId: string) => {
     killPty(ptyId)
   })
+  ipcMain.handle(IPC_CHANNELS.pty.attach, async (_event, ptyId: string) => {
+    attachPty(getWindow, ptyId)
+  })
+  ipcMain.handle(IPC_CHANNELS.pty.loadPersisted, async () => {
+    return loadPersisted()
+  })
+  ipcMain.handle(
+    IPC_CHANNELS.pty.savePersisted,
+    async (_event, state: PersistedTerminalsState) => {
+      await savePersisted(state)
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.clipboard.writeText, async (_event, text: string) => {
+    clipboard.writeText(text)
+  })
+  ipcMain.handle(IPC_CHANNELS.clipboard.readText, async () => clipboard.readText())
 
   ipcMain.handle(IPC_CHANNELS.sync.getStatus, async () => {
     return getSyncStatus()
@@ -78,5 +117,13 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   })
   ipcMain.handle(IPC_CHANNELS.sync.signOut, async () => {
     await signOut()
+  })
+  ipcMain.handle(IPC_CHANNELS.sync.getConfig, async () => {
+    return getConfigView()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.window.getInset, () => {
+    const w = getWindow()
+    return w ? computeBottomInset(w) : 0
   })
 }

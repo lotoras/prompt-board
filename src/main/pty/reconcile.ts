@@ -23,6 +23,10 @@ export function clearPendingSpawn(ptyId: string): void {
   pendingSpawns.delete(ptyId)
 }
 
+export function preclaimSession(sessionId: string): void {
+  claimedSessionIds.add(sessionId)
+}
+
 /**
  * Match pending pty spawns against the latest sessions snapshot: a pending
  * spawn claims the oldest unclaimed session in its project whose
