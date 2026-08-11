@@ -40,7 +40,7 @@ function broadcastChanged(): void {
   }
 }
 
-async function assertDirectory(basePath: string): Promise<void> {
+export async function assertProjectDirectory(basePath: string): Promise<void> {
   let stat
   try {
     stat = await fs.stat(basePath)
@@ -57,7 +57,7 @@ export async function listProjects(): Promise<Project[]> {
 }
 
 export async function createProject(input: ProjectInput): Promise<Project> {
-  await assertDirectory(input.basePath)
+  await assertProjectDirectory(input.basePath)
   const projects = await load()
   const projectKey = pathKey(input.basePath)
   if (projects.some((p) => p.projectKey === projectKey)) {
@@ -88,7 +88,7 @@ export async function updateProject(
     throw new Error(`Project not found: ${projectKey}`)
   }
   if (patch.basePath !== undefined) {
-    await assertDirectory(patch.basePath)
+    await assertProjectDirectory(patch.basePath)
   }
   const existing = projects[index]
   const updated: Project = {

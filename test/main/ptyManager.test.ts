@@ -25,6 +25,10 @@ vi.mock('../../src/main/pty/reconcile', async (importOriginal) => {
   }
 })
 
+const { assertProjectDirectory } = vi.hoisted(() => ({
+  assertProjectDirectory: vi.fn(async () => {})
+}))
+
 type FakePty = {
   onData: (cb: (data: string) => void) => void
   onExit: (cb: (e: { exitCode: number }) => void) => void
@@ -66,7 +70,8 @@ vi.mock('../../src/main/projects/store', () => ({
       createdAt: 0,
       updatedAt: 0
     }
-  ])
+  ]),
+  assertProjectDirectory
 }))
 
 const MAX_BUFFER = 256 * 1024
@@ -83,6 +88,8 @@ describe('pty/manager', () => {
     vi.spyOn(nodePty as any, 'spawn').mockImplementation(makeFakePty as any)
     registerPendingSpawn.mockClear()
     preclaimSession.mockClear()
+    assertProjectDirectory.mockReset()
+    assertProjectDirectory.mockImplementation(async () => {})
     mgr = await import('../../src/main/pty/manager')
     fakePtys.length = 0
     sent = []
@@ -239,6 +246,17 @@ describe('pty/manager', () => {
     it('killPty on a missing pty is a no-op', () => {
       expect(() => mgr.killPty('nope')).not.toThrow()
       expect(sent.length).toBe(0)
+    })
+
+    it('spawnPty rejects when the project basePath fails validation', async () => {
+      assertProjectDirectory.mockRejectedValueOnce(
+        new Error('basePath does not exist: C:/tmp/proj')
+      )
+
+      await expect(mgr.spawnPty(getWindow, { projectKey: 'proj-1' })).rejects.toThrow(
+        /P.*basePath does not exist: C:\/tmp\/proj/
+      )
+      expect(nodePty.spawn).not.toHaveBeenCalled()
     })
   })
 

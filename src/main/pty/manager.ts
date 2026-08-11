@@ -3,7 +3,7 @@ import type { BrowserWindow } from 'electron'
 import type { IPty } from 'node-pty'
 import { IPC_CHANNELS } from '../../shared/types'
 import type { PtySpawnInput } from '../../shared/types'
-import { listProjects } from '../projects/store'
+import { assertProjectDirectory, listProjects } from '../projects/store'
 import { clearPendingSpawn, preclaimSession, registerPendingSpawn } from './reconcile'
 import { scheduleQueryInjection } from './queryInjector'
 
@@ -55,6 +55,12 @@ export async function spawnPty(
   const project = projects.find((p) => p.projectKey === input.projectKey)
   if (!project || !project.basePath) {
     throw new Error(`Project has no base path to spawn a terminal in: ${input.projectKey}`)
+  }
+
+  try {
+    await assertProjectDirectory(project.basePath)
+  } catch (err) {
+    throw new Error(`Cannot start a terminal for "${project.name}": ${(err as Error).message}`)
   }
 
   const ptyId = randomUUID()
