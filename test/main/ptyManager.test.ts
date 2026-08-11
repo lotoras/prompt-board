@@ -11,6 +11,20 @@ import type { BrowserWindow } from 'electron'
 import * as nodePty from 'node-pty'
 import { IPC_CHANNELS } from '../../src/shared/types'
 
+const { registerPendingSpawn, preclaimSession } = vi.hoisted(() => ({
+  registerPendingSpawn: vi.fn(),
+  preclaimSession: vi.fn()
+}))
+
+vi.mock('../../src/main/pty/reconcile', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/main/pty/reconcile')>()
+  return {
+    ...actual,
+    registerPendingSpawn,
+    preclaimSession
+  }
+})
+
 type FakePty = {
   onData: (cb: (data: string) => void) => void
   onExit: (cb: (e: { exitCode: number }) => void) => void
@@ -67,6 +81,8 @@ describe('pty/manager', () => {
     vi.resetModules()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     vi.spyOn(nodePty as any, 'spawn').mockImplementation(makeFakePty as any)
+    registerPendingSpawn.mockClear()
+    preclaimSession.mockClear()
     mgr = await import('../../src/main/pty/manager')
     fakePtys.length = 0
     sent = []
@@ -237,6 +253,49 @@ describe('pty/manager', () => {
       // Regression guard: conptyInheritCursor:true caused a stray leading 'C' in every terminal.
       expect((opts as { conptyInheritCursor?: boolean }).conptyInheritCursor).not.toBe(true)
       expect((opts as { useConpty?: boolean }).useConpty).toBe(true)
+    })
+
+    it('spawns with CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN set in the inherited env', async () => {
+      await spawnFake()
+
+      const spawnMock = vi.mocked(nodePty.spawn)
+      const [, , opts] = spawnMock.mock.calls[spawnMock.mock.calls.length - 1]
+
+      expect((opts as { env?: Record<string, string> }).env?.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN).toBe('1')
+    })
+  })
+
+  describe('reconcile hooks', () => {
+    it('a resume spawn preclaims the session and registers a pending spawn with the expected session id', async () => {
+      await mgr.spawnPty(getWindow, { projectKey: 'proj-1', resumeSessionId: 'sess-42' })
+
+      expect(preclaimSession).toHaveBeenCalledWith('sess-42')
+      expect(registerPendingSpawn).toHaveBeenCalledWith(
+        expect.any(String),
+        'proj-1',
+        expect.any(Number),
+        'sess-42'
+      )
+
+      const spawnMock = vi.mocked(nodePty.spawn)
+      const [, args] = spawnMock.mock.calls[spawnMock.mock.calls.length - 1]
+      expect(args).toContain('claude --resume sess-42')
+    })
+
+    it('a fresh spawn does not preclaim and registers a pending spawn with undefined expected session id', async () => {
+      await mgr.spawnPty(getWindow, { projectKey: 'proj-1' })
+
+      expect(preclaimSession).not.toHaveBeenCalled()
+      expect(registerPendingSpawn).toHaveBeenCalledWith(
+        expect.any(String),
+        'proj-1',
+        expect.any(Number),
+        undefined
+      )
+
+      const spawnMock = vi.mocked(nodePty.spawn)
+      const [, args] = spawnMock.mock.calls[spawnMock.mock.calls.length - 1]
+      expect(args).toContain('clauded')
     })
   })
 })

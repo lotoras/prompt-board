@@ -60,6 +60,8 @@ export function XtermView({ ptyId, visible }: XtermViewProps): React.JSX.Element
 
     let disposed = false
     let replayed = false
+    let exited = false
+    let wheelRemainder = 0
 
     const fitSafely = (): void => {
       if (container.clientWidth > 0 && container.clientHeight > 0) fitAddon.fit()
@@ -68,16 +70,21 @@ export function XtermView({ ptyId, visible }: XtermViewProps): React.JSX.Element
 
     term.attachCustomWheelEventHandler((ev) => {
       if (ev.deltaY === 0) return true
-      // Let the hosted app own scrolling when it runs a full-screen TUI (alternate
-      // buffer) or has enabled mouse tracking (Claude Code does): forward the wheel
-      // so it scrolls its transcript. Only for a bare shell (normal buffer, no mouse
-      // tracking) do we scroll xterm's own scrollback.
-      if (term.buffer.active.type === 'alternate' || term.modes.mouseTrackingMode !== 'none') {
-        return true
+      const alt = !exited && term.buffer.active.type === 'alternate'
+      // The app owns the screen. If it asked for mouse reports, let xterm deliver them.
+      if (alt && term.modes.mouseTrackingMode !== 'none') return true
+      const factor = ev.deltaMode === 1 ? 1 : ev.deltaMode === 2 ? term.rows : 1 / 40
+      wheelRemainder += ev.deltaY * factor
+      const amount = Math.trunc(wheelRemainder)
+      wheelRemainder -= amount
+      if (amount === 0) return false
+      if (alt) {
+        // xterm.js lacks DECSET 1007 (alternate scroll) — emulate it: wheel → arrow keys.
+        const prefix = term.modes.applicationCursorKeysMode ? '\x1bO' : '\x1b['
+        api.pty.write(ptyId, `${prefix}${amount < 0 ? 'A' : 'B'}`.repeat(Math.abs(amount)))
+      } else {
+        term.scrollLines(amount)
       }
-      const factor = ev.deltaMode === 1 ? 1 : 1 / 40
-      const amount = Math.sign(ev.deltaY) * Math.max(1, Math.round(Math.abs(ev.deltaY) * factor))
-      term.scrollLines(amount)
       return false
     })
 
@@ -129,6 +136,8 @@ export function XtermView({ ptyId, visible }: XtermViewProps): React.JSX.Element
     })
     const unsubExit = api.pty.onExit(({ ptyId: id, exitCode }) => {
       if (id !== ptyId || disposed) return
+      exited = true
+      term.write('\x1b[?1049l\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?1000l')
       term.write(`\r\n\x1b[90m[process exited with code ${exitCode}]\x1b[0m\r\n`)
     })
 

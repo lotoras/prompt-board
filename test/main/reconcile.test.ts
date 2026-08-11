@@ -52,4 +52,52 @@ describe('pty/reconcile', () => {
       })
     })
   })
+
+  describe('resume grace window', () => {
+    it('links immediately when the expected session is already live', async () => {
+      const { registerPendingSpawn, reconcilePendingSpawns } = await loadReconcile()
+      const spawnedAt = Date.now()
+      const expected = makeSession({ sessionId: 'resumed-1', startedAt: spawnedAt - 60000 })
+      registerPendingSpawn('pty-r1', 'proj-1', spawnedAt, 'resumed-1')
+
+      const send = vi.fn()
+      const win = { isDestroyed: () => false, webContents: { send } }
+      reconcilePendingSpawns(makeSnapshot([expected]), () => win as never)
+
+      expect(send).toHaveBeenCalledTimes(1)
+      expect(send).toHaveBeenCalledWith(expect.any(String), {
+        ptyId: 'pty-r1',
+        sessionId: 'resumed-1'
+      })
+    })
+
+    it('claims nothing inside the grace window when the expected session is not yet live, even if an unrelated session is available', async () => {
+      const { registerPendingSpawn, reconcilePendingSpawns } = await loadReconcile()
+      const unrelated = makeSession({ sessionId: 'unrelated-1', startedAt: Date.now() })
+      registerPendingSpawn('pty-r2', 'proj-1', Date.now(), 'still-booting')
+
+      const send = vi.fn()
+      const win = { isDestroyed: () => false, webContents: { send } }
+      reconcilePendingSpawns(makeSnapshot([unrelated]), () => win as never)
+
+      expect(send).not.toHaveBeenCalled()
+    })
+
+    it('falls back to the generic oldest-unclaimed rule once the grace window elapses', async () => {
+      const { registerPendingSpawn, reconcilePendingSpawns } = await loadReconcile()
+      const spawnedAt = Date.now() - 20000
+      const repaired = makeSession({ sessionId: 'new-session', startedAt: spawnedAt + 500 })
+      registerPendingSpawn('pty-r3', 'proj-1', spawnedAt, 'stale-expected-id')
+
+      const send = vi.fn()
+      const win = { isDestroyed: () => false, webContents: { send } }
+      reconcilePendingSpawns(makeSnapshot([repaired]), () => win as never)
+
+      expect(send).toHaveBeenCalledTimes(1)
+      expect(send).toHaveBeenCalledWith(expect.any(String), {
+        ptyId: 'pty-r3',
+        sessionId: 'new-session'
+      })
+    })
+  })
 })

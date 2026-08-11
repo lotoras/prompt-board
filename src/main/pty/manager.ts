@@ -66,7 +66,7 @@ export async function spawnPty(
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
     useConpty: true,
-    env: process.env as Record<string, string>
+    env: { ...process.env, CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1' } as Record<string, string>
   })
 
   sessions.set(ptyId, { pty: ptyProcess, projectKey: input.projectKey })
@@ -75,9 +75,8 @@ export async function spawnPty(
   const spawnedAt = Date.now()
   if (input.resumeSessionId) {
     preclaimSession(input.resumeSessionId)
-  } else {
-    registerPendingSpawn(ptyId, input.projectKey, spawnedAt)
   }
+  registerPendingSpawn(ptyId, input.projectKey, spawnedAt, input.resumeSessionId)
 
   ptyProcess.onData((data) => {
     const next = (buffers.get(ptyId) ?? '') + data

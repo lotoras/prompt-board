@@ -57,7 +57,7 @@ export function TerminalTabStrip({
             }${terminal.status === 'exited' ? ' terminal-tabs__tab--exited' : ''}`}
             onClick={() => onSelect(terminal.ptyId)}
           >
-            {s && (
+            {s ? (
               <span
                 className={`terminal-tabs__status-dot terminal-tabs__status-dot--${s.dismissable ? 'attention' : s.status}${s.dismissable ? ' terminal-tabs__status-dot--dismissable' : ''}`}
                 title={
@@ -76,6 +76,11 @@ export function TerminalTabStrip({
                       }
                     : undefined
                 }
+              />
+            ) : (
+              <span
+                className="terminal-tabs__status-dot terminal-tabs__status-dot--unlinked"
+                title="no linked session yet"
               />
             )}
             <span className="terminal-tabs__title">{terminal.title || shortId(terminal.ptyId)}</span>

@@ -88,6 +88,11 @@
   background: var(--status-waiting);
 }
 
+.terminal-tabs__status-dot--unlinked {
+  background: var(--status-idle);
+  opacity: 0.35;
+}
+
 .terminal-tabs__status-dot--dismissable {
   cursor: pointer;
 }
