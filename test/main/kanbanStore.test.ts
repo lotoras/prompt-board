@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { promises as fs } from 'fs'
 import os from 'os'
 import { join } from 'path'
-import { GLOBAL_BOARD_PROJECT_KEY } from '../../src/shared/types'
+import { FOR_LATER_COLUMN_ID, GLOBAL_BOARD_PROJECT_KEY } from '../../src/shared/types'
 
 const { userDataDir } = vi.hoisted(() => ({ userDataDir: { current: '' } }))
 
@@ -34,6 +34,7 @@ describe('kanban/store', () => {
       const globalBoard = state.boards.find((b) => b.projectKey === GLOBAL_BOARD_PROJECT_KEY)
       expect(globalBoard).toBeDefined()
       expect(globalBoard?.columns).toEqual([
+        { id: 'for-later', title: 'For Later', order: -1 },
         { id: 'todo', title: 'Todo', order: 0 },
         { id: 'start-coding', title: 'Start coding', order: 1 },
         { id: 'doing', title: 'Doing', order: 2 },
@@ -211,6 +212,208 @@ describe('kanban/store', () => {
       const persisted = JSON.parse(raw)
       const persistedBoard = persisted.boards.find((b: { projectKey: string }) => b.projectKey === 'proj-old')
       expect(persistedBoard.columns.some((c: { id: string }) => c.id === 'start-coding')).toBe(true)
+    })
+  })
+
+  describe('for-later column migration', () => {
+    it('seeds a fresh global board with for-later first and lowest order', async () => {
+      const { getBoards } = await loadStore()
+      const state = await getBoards()
+      const globalBoard = state.boards.find((b) => b.projectKey === GLOBAL_BOARD_PROJECT_KEY)!
+      expect(globalBoard.columns[0]).toEqual({ id: FOR_LATER_COLUMN_ID, title: 'For Later', order: -1 })
+      const todo = globalBoard.columns.find((c) => c.id === 'todo')!
+      expect(globalBoard.columns[0].order).toBeLessThan(todo.order)
+    })
+
+    it('migrates pre-seeded global and project boards missing for-later', async () => {
+      const file = join(tmpDir, 'boards.json')
+      const oldColumns = [
+        { id: 'todo', title: 'Todo', order: 0 },
+        { id: 'start-coding', title: 'Start coding', order: 1 },
+        { id: 'doing', title: 'Doing', order: 2 },
+        { id: 'done', title: 'Done', order: 3 }
+      ]
+      await fs.writeFile(
+        file,
+        JSON.stringify({
+          boards: [
+            { projectKey: GLOBAL_BOARD_PROJECT_KEY, columns: oldColumns.map((c) => ({ ...c })) },
+            { projectKey: 'c--tmp-demo', columns: oldColumns.map((c) => ({ ...c })) }
+          ],
+          cards: []
+        })
+      )
+
+      const { getBoards } = await loadStore()
+      const state = await getBoards()
+      for (const projectKey of [GLOBAL_BOARD_PROJECT_KEY, 'c--tmp-demo']) {
+        const board = state.boards.find((b) => b.projectKey === projectKey)!
+        expect(board.columns[0].id).toBe(FOR_LATER_COLUMN_ID)
+        const lowestOrder = Math.min(...board.columns.map((c) => c.order))
+        expect(board.columns[0].order).toBe(lowestOrder)
+        expect(board.columns.slice(1)).toEqual(oldColumns)
+      }
+    })
+
+    it('is idempotent when a board already has a for-later column', async () => {
+      const file = join(tmpDir, 'boards.json')
+      await fs.writeFile(
+        file,
+        JSON.stringify({
+          boards: [
+            {
+              projectKey: 'proj-existing',
+              columns: [
+                { id: 'for-later', title: 'For Later', order: -5 },
+                { id: 'todo', title: 'Todo', order: 0 },
+                { id: 'doing', title: 'Doing', order: 1 },
+                { id: 'done', title: 'Done', order: 2 }
+              ]
+            }
+          ],
+          cards: []
+        })
+      )
+
+      const { getBoards } = await loadStore()
+      const state = await getBoards()
+      const board = state.boards.find((b) => b.projectKey === 'proj-existing')!
+      const forLaterColumns = board.columns.filter((c) => c.id === FOR_LATER_COLUMN_ID)
+      expect(forLaterColumns).toHaveLength(1)
+      expect(forLaterColumns[0].order).toBe(-5)
+    })
+
+    it('persists the for-later migration to boards.json on disk', async () => {
+      const file = join(tmpDir, 'boards.json')
+      await fs.writeFile(
+        file,
+        JSON.stringify({
+          boards: [
+            {
+              projectKey: 'proj-old',
+              columns: [
+                { id: 'todo', title: 'Todo', order: 0 },
+                { id: 'doing', title: 'Doing', order: 1 },
+                { id: 'done', title: 'Done', order: 2 }
+              ]
+            }
+          ],
+          cards: []
+        })
+      )
+
+      const { getBoards } = await loadStore()
+      await getBoards()
+
+      const raw = await fs.readFile(file, 'utf-8')
+      const persisted = JSON.parse(raw)
+      const persistedBoard = persisted.boards.find((b: { projectKey: string }) => b.projectKey === 'proj-old')
+      expect(persistedBoard.columns.some((c: { id: string }) => c.id === FOR_LATER_COLUMN_ID)).toBe(true)
+    })
+  })
+
+  describe('due dates', () => {
+    it('creates a card with a dueDate and persists it across a fresh module load', async () => {
+      const { mutateKanban } = await loadStore()
+      const created = await mutateKanban({
+        type: 'createCard',
+        card: {
+          projectKey: 'proj-1',
+          columnId: 'todo',
+          title: 'Task',
+          body: '',
+          tags: [],
+          order: 'm',
+          dueDate: '2026-08-20'
+        }
+      })
+      expect(created.cards[0].dueDate).toBe('2026-08-20')
+
+      vi.resetModules()
+      const fresh = await loadStore()
+      const state = await fresh.getBoards()
+      expect(state.cards[0].dueDate).toBe('2026-08-20')
+    })
+
+    it('updateCard with patch.dueDate sets the date', async () => {
+      const { mutateKanban } = await loadStore()
+      const created = await mutateKanban({
+        type: 'createCard',
+        card: { projectKey: 'proj-1', columnId: 'todo', title: 'Task', body: '', tags: [], order: 'm' }
+      })
+      const cardId = created.cards[0].id
+      const updated = await mutateKanban({
+        type: 'updateCard',
+        id: cardId,
+        patch: { dueDate: '2026-08-20' }
+      })
+      expect(updated.cards.find((c) => c.id === cardId)!.dueDate).toBe('2026-08-20')
+    })
+
+    it('updateCard with patch.dueDate: null deletes the date, on disk too', async () => {
+      const { mutateKanban } = await loadStore()
+      const created = await mutateKanban({
+        type: 'createCard',
+        card: {
+          projectKey: 'proj-1',
+          columnId: 'todo',
+          title: 'Task',
+          body: '',
+          tags: [],
+          order: 'm',
+          dueDate: '2026-08-20'
+        }
+      })
+      const cardId = created.cards[0].id
+      const updated = await mutateKanban({ type: 'updateCard', id: cardId, patch: { dueDate: null } })
+      const card = updated.cards.find((c) => c.id === cardId)!
+      expect('dueDate' in card).toBe(false)
+
+      const raw = await fs.readFile(join(tmpDir, 'boards.json'), 'utf-8')
+      const persisted = JSON.parse(raw)
+      const persistedCard = persisted.cards.find((c: { id: string }) => c.id === cardId)
+      expect('dueDate' in persistedCard).toBe(false)
+    })
+
+    it('updateCard with patch.dueDate: "" also deletes the date', async () => {
+      const { mutateKanban } = await loadStore()
+      const created = await mutateKanban({
+        type: 'createCard',
+        card: {
+          projectKey: 'proj-1',
+          columnId: 'todo',
+          title: 'Task',
+          body: '',
+          tags: [],
+          order: 'm',
+          dueDate: '2026-08-20'
+        }
+      })
+      const cardId = created.cards[0].id
+      const updated = await mutateKanban({ type: 'updateCard', id: cardId, patch: { dueDate: '' } })
+      const card = updated.cards.find((c) => c.id === cardId)!
+      expect('dueDate' in card).toBe(false)
+    })
+
+    it('updateCard patch omitting dueDate leaves an existing date untouched', async () => {
+      const { mutateKanban } = await loadStore()
+      const created = await mutateKanban({
+        type: 'createCard',
+        card: {
+          projectKey: 'proj-1',
+          columnId: 'todo',
+          title: 'Task',
+          body: '',
+          tags: [],
+          order: 'm',
+          dueDate: '2026-08-20'
+        }
+      })
+      const cardId = created.cards[0].id
+      const updated = await mutateKanban({ type: 'updateCard', id: cardId, patch: { title: 'x' } })
+      const card = updated.cards.find((c) => c.id === cardId)!
+      expect(card.title).toBe('x')
+      expect(card.dueDate).toBe('2026-08-20')
     })
   })
 })

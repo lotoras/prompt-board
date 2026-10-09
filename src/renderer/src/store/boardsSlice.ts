@@ -1,6 +1,8 @@
 import type { StateCreator } from 'zustand'
+import { DONE_COLUMN_ID } from '../../../shared/types'
 import type { KanbanCard, KanbanMutation, KanbanState } from '../../../shared/types'
 import { api } from '../lib/api'
+import { todayLocalISO } from '../lib/format'
 import type { StoreState } from './index'
 
 export interface BoardsSlice {
@@ -8,6 +10,7 @@ export interface BoardsSlice {
   setBoards: (boards: KanbanState) => void
   loadBoards: () => Promise<void>
   cardsFor: (projectKey: string) => KanbanCard[]
+  dueCards: () => KanbanCard[]
   mutateBoard: (mutation: KanbanMutation) => Promise<void>
 }
 
@@ -19,6 +22,14 @@ export const createBoardsSlice: StateCreator<StoreState, [], [], BoardsSlice> = 
     set({ boards })
   },
   cardsFor: (projectKey) => get().boards.cards.filter((c) => c.projectKey === projectKey),
+  dueCards: () => {
+    const today = todayLocalISO()
+    return get()
+      .boards.cards.filter((c) => !!c.dueDate && c.columnId !== DONE_COLUMN_ID && c.dueDate <= today)
+      .sort((a, b) =>
+        a.dueDate! < b.dueDate! ? -1 : a.dueDate! > b.dueDate! ? 1 : a.order < b.order ? -1 : 1
+      )
+  },
   mutateBoard: async (mutation) => {
     const previous = get().boards
     try {

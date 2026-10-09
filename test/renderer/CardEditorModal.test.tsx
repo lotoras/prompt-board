@@ -3,10 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { KanbanCard, Project } from '../../src/shared/types'
 
-const { spawn } = vi.hoisted(() => ({ spawn: vi.fn() }))
+const { spawn, mutate } = vi.hoisted(() => ({ spawn: vi.fn(), mutate: vi.fn() }))
 
 vi.mock('../../src/renderer/src/lib/api', () => ({
-  api: { caps: { pty: true }, pty: { spawn } }
+  api: { caps: { pty: true }, pty: { spawn }, kanban: { mutate } }
 }))
 
 import { useStore } from '../../src/renderer/src/store'
@@ -114,5 +114,68 @@ describe('CardEditorModal — Resume session button', () => {
 
     await waitFor(() => expect(useStore.getState().activeTabByProject[PROJECT_KEY]).toBe('p9'))
     expect(spawn).not.toHaveBeenCalled()
+  })
+})
+
+describe('CardEditorModal — due date field', () => {
+  beforeEach(() => {
+    mutate.mockReset()
+    mutate.mockResolvedValue({ boards: [], cards: [] })
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  it('renders the due date input with the card\'s existing date', () => {
+    const card = makeCard({ dueDate: '2026-08-20' })
+    seedStore(card)
+
+    render(<CardEditorModal />)
+
+    expect((screen.getByLabelText('Due date') as HTMLInputElement).value).toBe('2026-08-20')
+  })
+
+  it('renders an empty due date input when the card has no date', () => {
+    const card = makeCard({ dueDate: undefined })
+    seedStore(card)
+
+    render(<CardEditorModal />)
+
+    expect((screen.getByLabelText('Due date') as HTMLInputElement).value).toBe('')
+  })
+
+  it('sends the changed due date in the updateCard patch on save', async () => {
+    const card = makeCard({ dueDate: '2026-08-20' })
+    seedStore(card)
+
+    render(<CardEditorModal />)
+
+    fireEvent.change(screen.getByLabelText('Due date'), { target: { value: '2026-08-25' } })
+    fireEvent.click(screen.getByText('Save'))
+
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'updateCard',
+        id: card.id,
+        patch: expect.objectContaining({ dueDate: '2026-08-25' })
+      })
+    )
+  })
+
+  it('sends dueDate: null when the date input is cleared', async () => {
+    const card = makeCard({ dueDate: '2026-08-20' })
+    seedStore(card)
+
+    render(<CardEditorModal />)
+
+    fireEvent.change(screen.getByLabelText('Due date'), { target: { value: '' } })
+    fireEvent.click(screen.getByText('Save'))
+
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ patch: expect.objectContaining({ dueDate: null }) })
+    )
   })
 })

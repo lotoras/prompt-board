@@ -1,7 +1,7 @@
 import chokidar, { type FSWatcher } from 'chokidar'
 import type { BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from '../../shared/types'
-import { reconcilePendingSpawns } from '../pty/reconcile'
+import { reconcilePendingSpawns, refreshPtyBindings } from '../pty/reconcile'
 import { sessionsDir } from './registry'
 import { buildSnapshot } from './snapshot'
 import { projectsDir } from './transcript'
@@ -17,6 +17,7 @@ let lastSnapshotJson = ''
 async function recomputeAndEmit(getWindow: () => BrowserWindow | null): Promise<void> {
   try {
     const snapshot = await buildSnapshot()
+    refreshPtyBindings(snapshot, getWindow)
     reconcilePendingSpawns(snapshot, getWindow)
     const json = JSON.stringify(snapshot)
     if (json === lastSnapshotJson) return

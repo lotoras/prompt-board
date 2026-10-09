@@ -42,6 +42,7 @@ interface RemoteCardRow {
   tags: string[]
   order: string
   link: string | null
+  due_date: string | null
   created_at: string
   updated_at: string
   deleted_at: string | null
@@ -136,6 +137,7 @@ function cardToRow(card: KanbanCard, deviceId: string, deletedAtMs?: number): Re
     tags: card.tags,
     order: card.order,
     link: card.link ? JSON.stringify(card.link) : null,
+    due_date: card.dueDate || null,
     created_at: new Date(card.createdAt).toISOString(),
     updated_at: new Date(card.updatedAt).toISOString(),
     deleted_at: deletedAtMs ? new Date(deletedAtMs).toISOString() : null,
@@ -153,6 +155,7 @@ function rowToCard(row: RemoteCardRow): KanbanCard {
     tags: row.tags ?? [],
     order: row.order,
     link: row.link ? (JSON.parse(row.link) as CardLink) : undefined,
+    dueDate: row.due_date ?? undefined,
     createdAt: new Date(row.created_at).getTime(),
     updatedAt: new Date(row.updated_at).getTime()
   }

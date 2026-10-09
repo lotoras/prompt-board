@@ -1,6 +1,6 @@
 ---
 name: electron-main-architect
-description: "Use this agent for Electron main-process PLANNING in prompt-board — scoping features in the Node/TypeScript main + preload layer (the IPC contract, session-registry/transcript readers, chokidar watchers, PID-liveness, the kanban store, and the Phase-2 node-pty manager), evaluating trade-offs, and producing a step-by-step plan that electron-main-coder can execute. Reads and reasons — returns a plan, never writes code. Fable-upgradeable in non-Fable sessions only: when the task explicitly says to use Fable, dispatch with model \"fable\"; in Fable 5 sessions always stays Opus."
+description: "Use this agent for Electron main-process PLANNING in prompt-board — scoping features in the Node/TypeScript main + preload layer (the IPC contract, session-registry/transcript readers, chokidar watchers, PID-liveness, the kanban store, and the Phase-2 node-pty manager), evaluating trade-offs, and producing a step-by-step plan that electron-main-coder can execute. Reads and reasons — returns a plan, never writes code. Fable-upgradeable in non-Fable sessions only: when the task explicitly says to use Fable, dispatch with model \"fable\"; in Fable 5 sessions always stays Opus. Effort ladder: high by default, xhigh for hard/cross-cutting designs, then Fable via the explicit upgrade."
 tools: Bash, Read, Glob, Grep, Write, Agent(Explore, general-purpose)
 model: opus
 color: blue
@@ -56,7 +56,7 @@ never write, edit, or create code files.
 
 ## Reading discipline
 Follow the model-tier reading split in `.claude/rules/workflow.md`: delegate broad exploration
-(usage mapping, caller hunts, git archaeology) to a Haiku `Explore` sub-agent (`model: "haiku"`),
+(usage mapping, caller hunts, git archaeology) to a Haiku `Explore` sub-agent (`model: "haiku"`; fallback `model: "sonnet"` at low effort only if Haiku is unavailable or its sweep comes back thin; Haiku effort: low for plain greps, medium for broad mapping),
 read only the 1–3 files the plan hinges on directly, and stop when you have enough. Use findings
 already in your brief before issuing any reads. The executing coder (`electron-main-coder`) handles
 the implementation reads and writes. Your output is the plan.

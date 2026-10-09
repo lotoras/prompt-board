@@ -2,6 +2,7 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { KanbanCard } from '../../../../shared/types'
 import { GLOBAL_BOARD_PROJECT_KEY } from '../../../../shared/types'
+import { todayLocalISO, dueState, formatDueDate } from '../../lib/format'
 import './kanban.css'
 
 interface CardItemContentProps {
@@ -11,6 +12,7 @@ interface CardItemContentProps {
 }
 
 function CardItemInner({ card, showProjectTag, projectName }: CardItemContentProps): React.JSX.Element {
+  const today = todayLocalISO()
   return (
     <>
       {showProjectTag && (
@@ -19,6 +21,11 @@ function CardItemInner({ card, showProjectTag, projectName }: CardItemContentPro
         </span>
       )}
       <div className="card-item__title">{card.title}</div>
+      {card.dueDate && (
+        <span className={`card-item__due card-item__due--${dueState(card.dueDate, today)}`}>
+          {formatDueDate(card.dueDate, today)}
+        </span>
+      )}
       {card.link && <span className="tag-chip tag-chip--sm session-chip">session</span>}
       {card.tags.length > 0 && (
         <div className="card-item__tags">

@@ -10,7 +10,7 @@ import {
 } from '@dnd-kit/core'
 import type { CollisionDetection, DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import type { KanbanCard } from '../../../../shared/types'
-import { GLOBAL_BOARD_PROJECT_KEY } from '../../../../shared/types'
+import { GLOBAL_BOARD_PROJECT_KEY, FOR_LATER_COLUMN_ID } from '../../../../shared/types'
 import { useStore } from '../../store'
 import { between } from '../../lib/fractionalIndex'
 import { Column } from './Column'
@@ -55,7 +55,10 @@ export function KanbanBoard({ projectKey }: KanbanBoardProps): React.JSX.Element
   const board = boards.find((b) => b.projectKey === projectKey) ?? (isGlobal ? undefined : globalBoard)
 
   const cards = useMemo(
-    () => (isGlobal ? allCards : allCards.filter((c) => c.projectKey === projectKey)),
+    () =>
+      isGlobal
+        ? allCards.filter((c) => c.columnId !== FOR_LATER_COLUMN_ID)
+        : allCards.filter((c) => c.projectKey === projectKey),
     [isGlobal, allCards, projectKey]
   )
 
@@ -63,10 +66,10 @@ export function KanbanBoard({ projectKey }: KanbanBoardProps): React.JSX.Element
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
-  const columns = useMemo(
-    () => (board ? [...board.columns].sort((a, b) => a.order - b.order) : []),
-    [board]
-  )
+  const columns = useMemo(() => {
+    const sorted = board ? [...board.columns].sort((a, b) => a.order - b.order) : []
+    return isGlobal ? sorted.filter((c) => c.id !== FOR_LATER_COLUMN_ID) : sorted
+  }, [board, isGlobal])
 
   const cardsByColumn = useMemo(() => {
     const map = new Map<string, KanbanCard[]>()

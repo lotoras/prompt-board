@@ -25,6 +25,8 @@ const api: Api = {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.sessions.list),
     acknowledge: (sessionId: string, statusUpdatedAt: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.sessions.acknowledge, sessionId, statusUpdatedAt),
+    unacknowledge: (sessionId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.sessions.unacknowledge, sessionId),
     onChanged: (cb: (snapshot: SessionsSnapshot) => void) => {
       const listener = (_event: unknown, snapshot: SessionsSnapshot): void => cb(snapshot)
       ipcRenderer.on(IPC_CHANNELS.sessions.changed, listener)
@@ -90,7 +92,8 @@ const api: Api = {
     loadPersisted: (): Promise<PersistedTerminalsState> =>
       ipcRenderer.invoke(IPC_CHANNELS.pty.loadPersisted),
     savePersisted: (state: PersistedTerminalsState): Promise<void> =>
-      ipcRenderer.invoke(IPC_CHANNELS.pty.savePersisted, state)
+      ipcRenderer.invoke(IPC_CHANNELS.pty.savePersisted, state),
+    getBindings: (): Promise<PtySessionEvent[]> => ipcRenderer.invoke(IPC_CHANNELS.pty.bindings)
   },
   clipboard: {
     writeText: (text: string) => ipcRenderer.invoke(IPC_CHANNELS.clipboard.writeText, text),

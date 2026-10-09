@@ -1,6 +1,8 @@
 import { app, BrowserWindow } from 'electron'
 import { join } from 'path'
 import {
+  DONE_COLUMN_ID,
+  FOR_LATER_COLUMN_ID,
   GLOBAL_BOARD_PROJECT_KEY,
   IPC_CHANNELS,
   type Board,
@@ -31,10 +33,11 @@ function broadcastChanged(state: KanbanState): void {
 
 function defaultColumns(): Board['columns'] {
   return [
+    { id: FOR_LATER_COLUMN_ID, title: 'For Later', order: -1 },
     { id: 'todo', title: 'Todo', order: 0 },
     { id: 'start-coding', title: 'Start coding', order: 1 },
     { id: 'doing', title: 'Doing', order: 2 },
-    { id: 'done', title: 'Done', order: 3 }
+    { id: DONE_COLUMN_ID, title: 'Done', order: 3 }
   ]
 }
 
@@ -43,7 +46,7 @@ function migrateBoard(board: Board): boolean {
 
   const todo = board.columns.find((c) => c.id === 'todo')
   const doing = board.columns.find((c) => c.id === 'doing')
-  const done = board.columns.find((c) => c.id === 'done')
+  const done = board.columns.find((c) => c.id === DONE_COLUMN_ID)
 
   let order: number
   let index: number
@@ -66,11 +69,24 @@ function migrateBoard(board: Board): boolean {
   return true
 }
 
+function migrateForLaterColumn(board: Board): boolean {
+  if (board.columns.some((c) => c.id === FOR_LATER_COLUMN_ID)) return false
+
+  const order = board.columns.length === 0 ? 0 : Math.min(...board.columns.map((c) => c.order)) - 1
+
+  board.columns.unshift({ id: FOR_LATER_COLUMN_ID, title: 'For Later', order })
+  return true
+}
+
 async function load(): Promise<KanbanState> {
   if (cache) return cache
   cache = await readJsonFile<KanbanState>(filePath(), { boards: [], cards: [] })
   ensureBoard(cache, GLOBAL_BOARD_PROJECT_KEY)
-  const migrated = cache.boards.reduce((any, b) => migrateBoard(b) || any, false)
+  const migrated = cache.boards.reduce((any, b) => {
+    const a = migrateBoard(b)
+    const c = migrateForLaterColumn(b)
+    return a || c || any
+  }, false)
   if (migrated) await persist()
   return cache
 }
@@ -114,7 +130,12 @@ export async function mutateKanban(mutation: KanbanMutation): Promise<KanbanStat
     case 'updateCard': {
       const card = state.cards.find((c) => c.id === mutation.id)
       if (!card) throw new Error(`Card not found: ${mutation.id}`)
-      Object.assign(card, mutation.patch, { updatedAt: nextTimestamp() })
+      const { dueDate, ...rest } = mutation.patch
+      Object.assign(card, rest, { updatedAt: nextTimestamp() })
+      if (dueDate !== undefined) {
+        if (dueDate === null || dueDate === '') delete card.dueDate
+        else card.dueDate = dueDate
+      }
       affectedCard = card
       break
     }

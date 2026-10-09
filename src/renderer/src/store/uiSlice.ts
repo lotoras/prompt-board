@@ -21,6 +21,8 @@ export interface UiSlice {
   setProjectModal: (modal: ProjectModalState | null) => void
   syncModalOpen: boolean
   setSyncModalOpen: (open: boolean) => void
+  globalBoardMode: 'board' | 'aktuelles'
+  setGlobalBoardMode: (mode: 'board' | 'aktuelles') => void
 }
 
 const STORAGE_KEY = 'prompt-board:ui:view'
@@ -64,5 +66,7 @@ export const createUiSlice: StateCreator<StoreState, [], [], UiSlice> = (set, ge
   projectModal: null,
   setProjectModal: (modal) => set({ projectModal: modal }),
   syncModalOpen: false,
-  setSyncModalOpen: (open) => set({ syncModalOpen: open })
+  setSyncModalOpen: (open) => set({ syncModalOpen: open }),
+  globalBoardMode: 'board',
+  setGlobalBoardMode: (mode) => set({ globalBoardMode: mode })
 })

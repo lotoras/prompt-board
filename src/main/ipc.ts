@@ -11,7 +11,9 @@ import { mutateKanban, getBoards } from './kanban/store'
 import { createProject, deleteProject, listProjects, updateProject } from './projects/store'
 import { attachPty, killPty, resizePty, spawnPty, writePty } from './pty/manager'
 import { loadPersisted, savePersisted } from './pty/persistence'
-import { acknowledgeSession } from './sessions/acks'
+import { listPtyBindings } from './pty/reconcile'
+import { restoreLog } from './lib/restoreLog'
+import { acknowledgeSession, unacknowledgeSession } from './sessions/acks'
 import { buildSnapshot } from './sessions/snapshot'
 import { triggerSnapshotRefresh } from './sessions/watcher'
 import { configure, getConfigView, getSyncStatus, signOut } from './sync/engine'
@@ -34,6 +36,11 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       triggerSnapshotRefresh(getWindow)
     }
   )
+
+  ipcMain.handle(IPC_CHANNELS.sessions.unacknowledge, async (_event, sessionId: string) => {
+    await unacknowledgeSession(sessionId)
+    triggerSnapshotRefresh(getWindow)
+  })
 
   ipcMain.handle(IPC_CHANNELS.projects.list, async () => {
     return listProjects()
@@ -77,7 +84,16 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   })
 
   ipcMain.handle(IPC_CHANNELS.pty.spawn, async (_event, input: PtySpawnInput) => {
-    return spawnPty(getWindow, input)
+    try {
+      return await spawnPty(getWindow, input)
+    } catch (err) {
+      restoreLog('spawn:error', {
+        projectKey: input.projectKey,
+        resumeSessionId: input.resumeSessionId,
+        error: String(err)
+      })
+      throw err
+    }
   })
   ipcMain.handle(IPC_CHANNELS.pty.write, async (_event, ptyId: string, data: string) => {
     writePty(ptyId, data)
@@ -93,6 +109,11 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   })
   ipcMain.handle(IPC_CHANNELS.pty.attach, async (_event, ptyId: string) => {
     attachPty(getWindow, ptyId)
+  })
+  ipcMain.handle(IPC_CHANNELS.pty.bindings, () => {
+    const list = listPtyBindings()
+    restoreLog('bindings:requested', { count: list.length })
+    return list
   })
   ipcMain.handle(IPC_CHANNELS.pty.loadPersisted, async () => {
     return loadPersisted()

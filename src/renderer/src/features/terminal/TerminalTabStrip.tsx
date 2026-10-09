@@ -12,6 +12,7 @@ interface TerminalTabStripProps {
       status: SessionStatus
       waitingFor?: string
       dismissable: boolean
+      acknowledged: boolean
       sessionId: string
       statusUpdatedAt: number
     }
@@ -48,6 +49,7 @@ export function TerminalTabStrip({
     <div className="terminal-tabs">
       {terminals.map((terminal) => {
         const s = statusByPtyId[terminal.ptyId]
+        const clickable = s ? s.dismissable || s.acknowledged : false
         return (
           <button
             key={terminal.ptyId}
@@ -59,20 +61,24 @@ export function TerminalTabStrip({
           >
             {s ? (
               <span
-                className={`terminal-tabs__status-dot terminal-tabs__status-dot--${s.dismissable ? 'attention' : s.status}${s.dismissable ? ' terminal-tabs__status-dot--dismissable' : ''}`}
+                className={`terminal-tabs__status-dot terminal-tabs__status-dot--${s.dismissable ? 'attention' : s.status}${clickable ? ' terminal-tabs__status-dot--dismissable' : ''}`}
                 title={
                   s.dismissable
                     ? 'Mark as idle'
-                    : s.status === 'waiting' && s.waitingFor
-                      ? `waiting: ${s.waitingFor}`
-                      : s.status
+                    : s.acknowledged
+                      ? 'Mark as needing attention'
+                      : s.status === 'waiting' && s.waitingFor
+                        ? `waiting: ${s.waitingFor}`
+                        : s.status
                 }
-                role={s.dismissable ? 'button' : undefined}
+                role={clickable ? 'button' : undefined}
                 onClick={
-                  s.dismissable
+                  clickable
                     ? (e) => {
                         e.stopPropagation()
-                        void api.sessions.acknowledge(s.sessionId, s.statusUpdatedAt)
+                        s.dismissable
+                          ? void api.sessions.acknowledge(s.sessionId, s.statusUpdatedAt)
+                          : void api.sessions.unacknowledge(s.sessionId)
                       }
                     : undefined
                 }

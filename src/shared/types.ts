@@ -76,6 +76,8 @@ export interface ProjectInput {
 // ---------------------------------------------------------------------------
 
 export const GLOBAL_BOARD_PROJECT_KEY = '__global__'
+export const FOR_LATER_COLUMN_ID = 'for-later'
+export const DONE_COLUMN_ID = 'done'
 
 export interface KanbanColumn {
   id: string
@@ -102,6 +104,8 @@ export interface KanbanCard {
   tags: string[]
   order: string
   link?: CardLink
+  /** Local calendar date, 'YYYY-MM-DD'. Absent = no due date. */
+  dueDate?: string
   createdAt: number
   updatedAt: number
 }
@@ -111,12 +115,16 @@ export interface KanbanState {
   cards: KanbanCard[]
 }
 
+export type KanbanCardPatch = Partial<
+  Omit<KanbanCard, 'id' | 'createdAt' | 'updatedAt' | 'dueDate'>
+> & { dueDate?: string | null }
+
 export type KanbanMutation =
   | { type: 'createCard'; card: Omit<KanbanCard, 'id' | 'createdAt' | 'updatedAt'> }
   | {
       type: 'updateCard'
       id: string
-      patch: Partial<Omit<KanbanCard, 'id' | 'createdAt' | 'updatedAt'>>
+      patch: KanbanCardPatch
     }
   | { type: 'moveCard'; id: string; columnId: string; order: string }
   | { type: 'deleteCard'; id: string }
@@ -171,6 +179,12 @@ export interface PtySpawnInput {
   projectKey: string
   initialQuery?: string
   resumeSessionId?: string
+  freshFallback?: boolean // caller knows the previous session is unresumable; print the notice
+}
+
+export interface PtySpawnResult {
+  ptyId: string
+  resumed: boolean // false when a requested resume was downgraded to a fresh session
 }
 
 export interface PtyDataEvent {
@@ -182,6 +196,7 @@ export interface PtyDataEvent {
 export interface PtyExitEvent {
   ptyId: string
   exitCode: number
+  resumeFailed?: boolean
 }
 
 export interface PtySessionEvent {
@@ -208,7 +223,8 @@ export const IPC_CHANNELS = {
   sessions: {
     list: 'sessions:list',
     changed: 'sessions:changed',
-    acknowledge: 'sessions:acknowledge'
+    acknowledge: 'sessions:acknowledge',
+    unacknowledge: 'sessions:unacknowledge'
   },
   projects: {
     list: 'projects:list',
@@ -240,7 +256,8 @@ export const IPC_CHANNELS = {
     exit: 'pty:exit',
     session: 'pty:session',
     loadPersisted: 'pty:loadPersisted',
-    savePersisted: 'pty:savePersisted'
+    savePersisted: 'pty:savePersisted',
+    bindings: 'pty:bindings'
   },
   clipboard: {
     writeText: 'clipboard:writeText',
@@ -263,6 +280,7 @@ export interface Api {
   sessions: {
     list(): Promise<SessionsSnapshot>
     acknowledge(sessionId: string, statusUpdatedAt: number): Promise<void>
+    unacknowledge(sessionId: string): Promise<void>
     onChanged(cb: (snapshot: SessionsSnapshot) => void): () => void
   }
   projects: {
@@ -286,7 +304,7 @@ export interface Api {
     onStatus(cb: (status: SyncStatus) => void): () => void
   }
   pty: {
-    spawn(input: PtySpawnInput): Promise<{ ptyId: string }>
+    spawn(input: PtySpawnInput): Promise<PtySpawnResult>
     write(ptyId: string, data: string): Promise<void>
     resize(ptyId: string, cols: number, rows: number): Promise<void>
     kill(ptyId: string): Promise<void>
@@ -297,6 +315,7 @@ export interface Api {
     onSession(cb: (payload: PtySessionEvent) => void): () => void
     loadPersisted(): Promise<PersistedTerminalsState>
     savePersisted(state: PersistedTerminalsState): Promise<void>
+    getBindings(): Promise<PtySessionEvent[]>
   }
   clipboard: {
     writeText(text: string): Promise<void>

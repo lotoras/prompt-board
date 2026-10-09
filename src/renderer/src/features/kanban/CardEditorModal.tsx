@@ -26,6 +26,7 @@ function CardEditorForm({ card, onClose }: CardEditorFormProps): React.JSX.Eleme
   const [body, setBody] = useState(card.body)
   const [tags, setTags] = useState<string[]>(card.tags)
   const [cardProjectKey, setCardProjectKey] = useState(card.projectKey)
+  const [dueDate, setDueDate] = useState(card.dueDate ?? '')
 
   const targetProject = projects.find((p) => p.projectKey === cardProjectKey)
   const canStart = canStartInClaude(targetProject)
@@ -34,7 +35,7 @@ function CardEditorForm({ card, onClose }: CardEditorFormProps): React.JSX.Eleme
     await mutateBoard({
       type: 'updateCard',
       id: card.id,
-      patch: { title, body, tags, projectKey: cardProjectKey }
+      patch: { title, body, tags, projectKey: cardProjectKey, dueDate: dueDate || null }
     })
     onClose()
   }
@@ -87,6 +88,11 @@ function CardEditorForm({ card, onClose }: CardEditorFormProps): React.JSX.Eleme
         <label className="modal__field">
           Tags
           <TagInput tags={tags} onChange={setTags} />
+        </label>
+
+        <label className="modal__field">
+          Due date
+          <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
         </label>
 
         {card.projectKey === GLOBAL_BOARD_PROJECT_KEY ||

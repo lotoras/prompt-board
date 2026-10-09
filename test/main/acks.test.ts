@@ -47,12 +47,33 @@ describe('sessions/acks', () => {
       const raw = await fs.readFile(join(tmpDir, 'sessionAcks.json'), 'utf-8')
       expect(JSON.parse(raw)).toEqual({ sid: 456 })
     })
+
+    it('removes a previously acknowledged entry and persists the removal', async () => {
+      const { acknowledgeSession, unacknowledgeSession, getAcks } = await loadAcks()
+      await acknowledgeSession('sid', 123)
+      await unacknowledgeSession('sid')
+
+      expect(await getAcks()).toEqual({})
+
+      const raw = await fs.readFile(join(tmpDir, 'sessionAcks.json'), 'utf-8')
+      expect(JSON.parse(raw)).toEqual({})
+    })
   })
 
   describe('edge cases / failure', () => {
     it('returns an empty object when no file exists yet', async () => {
       const { getAcks } = await loadAcks()
       await expect(getAcks()).resolves.toEqual({})
+    })
+
+    it('unacknowledging a sessionId with no entry is a harmless no-op', async () => {
+      const { unacknowledgeSession, getAcks } = await loadAcks()
+      await unacknowledgeSession('missing')
+
+      expect(await getAcks()).toEqual({})
+
+      const raw = await fs.readFile(join(tmpDir, 'sessionAcks.json'), 'utf-8')
+      expect(JSON.parse(raw)).toEqual({})
     })
   })
 })

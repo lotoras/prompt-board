@@ -4,11 +4,12 @@ This is the orchestration rule. When referenced, follow this process end-to-end.
 
 ## How to proceed — per task, in order
 1. **Detect the session model** (statusline / session-model-guard injection): Fable 5 → strict
-   orchestrator (never edit directly); Opus → planner in the main thread (micro-edit exception);
+   orchestrator (never edit directly); Opus → planner in the main thread (direct-edit exception);
    anything else → follow this workflow as written.
 2. **Map the task to delegates**: plan/design → `<domain>-architect` (Opus); code changes →
-   `<domain>-coder` (Sonnet); tests → `testing-architect` / `testing-coder`; exploration/broad
-   reads → Explore subagent (`model: "haiku"`).
+   `<domain>-coder` (Sonnet via `model: "sonnet"` for plan-driven work, Haiku via `model: "haiku"` for purely mechanical, exactly-specified edits, Opus to escalate); tests → `testing-architect` / `testing-coder`; exploration/broad
+   reads → Explore subagent (`model: "haiku"`) for locate sweeps and verify/check passes (Haiku effort: low for plain greps, medium for broad mapping; fallback `model: "sonnet"` at low effort only if Haiku is unavailable or its sweep comes back thin), `model: "opus"` at low effort
+   for judgment reads (summarise, audit, compare).
 3. **Write the brief** per the Brief contract (objective, exact paths, gathered findings,
    constraints, output format + word cap); reference plan files in `.claude/plans/` instead of
    pasting plan text.
@@ -48,8 +49,7 @@ scatter-then-extract "double take" means the placement decision was skipped.
 ## Phase 3: Execute with Sub-Agents
 
 **Every code edit MUST go through a named sub-agent — no direct `Edit` / `Write` from the main
-thread, even for one-line changes.** *(Opus session exception: a trivial single-file few-line edit
-at a known location may be done directly — never on Fable.)* The main thread plans and verifies
+thread, even for one-line changes.** *(Opus sessions: see the direct-edit exception — never on Fable.)* The main thread plans and verifies
 only. Dispatch by layer:
 
 - **Main-process / IPC / filesystem / OS / kanban store / pty (Phase 2)** →
@@ -58,7 +58,8 @@ only. Dispatch by layer:
   `react-architect` (plan) then `react-coder` (build).
 - **Tests (Vitest unit + React Testing Library component)** → `testing-architect` (plan) then
   `testing-coder` (write).
-- **Broad exploration / usage mapping / research** → `Explore` sub-agent (`model: "haiku"`).
+- **Broad exploration / usage mapping / research** → `Explore` sub-agent (`model: "haiku"`) for
+  locate sweeps (Haiku effort: low for plain greps, medium for broad mapping) and verify/check passes (effort low); judgment reads (summarise, audit, compare) → `model: "opus"` at low effort.
 
 If a change spans multiple layers, dispatch the corresponding coders **in parallel** (single
 message, multiple `Agent` tool calls), each with only the context relevant to its layer. A new IPC
@@ -86,18 +87,18 @@ determines what the main thread may do directly.
 ### Fable 5 session (default — strict orchestrator)
 
 Fable 5 is a pure orchestrator. It **never** calls `Edit` or `Write` directly — not even
-one-liners. Every code change goes through a named Sonnet coder. Planning goes through an Opus
-architect. Broad exploration goes to a Haiku sub-agent.
+one-liners. Every code change goes through a named coder (Sonnet for plan-driven work, Haiku for purely mechanical, exactly-specified edits, Opus to escalate). Planning goes through an Opus
+architect. Broad exploration and verify/check passes go to a Haiku sub-agent (fallback `model: "sonnet"` at low effort only if Haiku is unavailable or its sweep comes back thin; Haiku effort: low for plain greps, medium for broad mapping).
 
 **Suggested flow per task:**
 1. Fable 5: receive task, think about scope.
 2. Haiku (`Explore`, `model: "haiku"`): broad mapping, returns a summary.
 3. Fable 5: read 1–3 key files to verify what the plan hinges on.
 4. Fable 5: write the plan, resolve trade-offs, interact with the user.
-5. Sonnet (named coder): execute the plan.
+5. Sonnet (named coder, `model: "sonnet"`; Opus to escalate): execute the plan.
 6. Fable 5: verify the diff, run tests, report back.
 
-#### Delegate to Haiku (`model: "haiku"`)
+#### Delegate to Haiku (`model: "haiku"`; fallback `model: "sonnet"` at low effort only if Haiku is unavailable or its sweep comes back thin; Haiku effort: low for plain greps, medium for broad mapping)
 - Broad / unknown scope — "find every place that does X", "map this area"
 - Large-file scans where only a pattern or a few snippets are needed
 - Git archaeology across multiple files
@@ -113,18 +114,20 @@ reads in a row means stop and dispatch an agent.
 
 ### Opus session
 
-Opus keeps planning and architecture in the main thread. Delegate implementation to named Sonnet
-coders and broad exploration to Haiku sub-agents.
+Opus keeps planning and architecture in the main thread. Delegate implementation to named
+coders (Sonnet for plan-driven work, Haiku for purely mechanical edits, Opus to escalate), locate sweeps and verify/check passes to Haiku sub-agents, and judgment reads to Opus at low effort.
 
-**Micro-edit exception:** a trivial single-file, few-line edit at a known location may be done
-directly from the Opus main thread. Never apply this exception on Fable 5.
+**Direct-edit exception:** any single-file change, or a small sequential change whose context the
+main thread already holds, may be done directly from the Opus main thread. Delegate to a named coder
+when the work fans out across files/layers or bulky reads would flood the main context. Never apply
+this exception on Fable 5.
 
 The domain architects (`electron-main-architect`, `react-architect`; Opus by default) are
 Fable-upgradeable in non-Fable sessions only — when the task explicitly says to use Fable, dispatch
 them with `model: "fable"` (dispatch-time override beats the frontmatter default); in Fable 5
 sessions architects always stay Opus — the orchestrator's plan review is the Fable pass, never
-double-pay. Test planning (`testing-architect`) is always Opus. Sonnet is reserved for execution by
-the named coders (`electron-main-coder`, `react-coder`, `testing-coder`).
+double-pay. Architect effort ladder: `high` by default, `xhigh` for hard/cross-cutting designs, then Fable via the explicit upgrade. Test planning (`testing-architect`) is always Opus. The named coders
+(`electron-main-coder`, `react-coder`, `testing-coder`) keep `model: opus` in frontmatter, but plan-driven / well-specified coding and test writing are dispatched with `model: "sonnet"` (effort `medium`), and purely mechanical, exactly-specified edits (verbatim find/replace, ID swaps, template copy/sync) with `model: "haiku"` (effort `medium`), escalating to Sonnet on failed verification. Escalate to Opus for cross-cutting, security or migration work, no written plan, a single dependent chain, or a Sonnet coder that returned blocked / failed verification; a stuck Sonnet coder returns `Open questions` instead of guessing — ask the architect or re-dispatch on Opus. Locate sweeps run on Haiku (fallback `model: "sonnet"` at low effort only if Haiku is unavailable or its sweep comes back thin; Haiku effort: low for plain greps, medium for broad mapping). Route each role to the cheapest tier that holds quality: sweep effort before switching model; cheaper workers pay off for well-specified or parallel work, not for a single dependent chain. Agent frontmatter can't set effort; the effort values apply to workflow `agent()` stages — plain `Agent` dispatches run at the session effort.
 
 ## Token-efficient handoffs
 

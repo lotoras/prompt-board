@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BrowserWindow } from 'electron'
 // `node-pty` is a native module loaded lazily inside manager.ts via a plain
 // `require('node-pty')`. Vitest's `vi.mock` only intercepts statically/dynamically
@@ -11,19 +11,35 @@ import type { BrowserWindow } from 'electron'
 import * as nodePty from 'node-pty'
 import { IPC_CHANNELS } from '../../src/shared/types'
 
-const { registerPendingSpawn, preclaimSession } = vi.hoisted(() => ({
+const { registerPendingSpawn, preclaimSession, isPendingSpawn, reconcileActualRef } = vi.hoisted(() => ({
   registerPendingSpawn: vi.fn(),
-  preclaimSession: vi.fn()
+  preclaimSession: vi.fn(),
+  isPendingSpawn: vi.fn(() => false),
+  // Holds the real (unmocked) reconcile module for the current test's module
+  // generation, so tests can drive its real `registerPendingSpawn` /
+  // `reconcilePendingSpawns` to populate the same pid<->session bindings map
+  // that manager.ts's (merged-mock) `releasePtyBinding`/`listPtyBindings` read.
+  reconcileActualRef: { current: undefined as typeof import('../../src/main/pty/reconcile') | undefined }
 }))
 
 vi.mock('../../src/main/pty/reconcile', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/main/pty/reconcile')>()
+  reconcileActualRef.current = actual
   return {
     ...actual,
     registerPendingSpawn,
-    preclaimSession
+    preclaimSession,
+    isPendingSpawn
   }
 })
+
+const { locateTranscript } = vi.hoisted(() => ({
+  locateTranscript: vi.fn(async () => 'C:/fake/transcript.jsonl')
+}))
+
+vi.mock('../../src/main/sessions/transcript', () => ({
+  locateTranscript
+}))
 
 const { assertProjectDirectory } = vi.hoisted(() => ({
   assertProjectDirectory: vi.fn(async () => {})
@@ -88,6 +104,10 @@ describe('pty/manager', () => {
     vi.spyOn(nodePty as any, 'spawn').mockImplementation(makeFakePty as any)
     registerPendingSpawn.mockClear()
     preclaimSession.mockClear()
+    isPendingSpawn.mockReset()
+    isPendingSpawn.mockReturnValue(false)
+    locateTranscript.mockReset()
+    locateTranscript.mockImplementation(async () => 'C:/fake/transcript.jsonl')
     assertProjectDirectory.mockReset()
     assertProjectDirectory.mockImplementation(async () => {})
     mgr = await import('../../src/main/pty/manager')
@@ -176,7 +196,7 @@ describe('pty/manager', () => {
 
       expect(replay()?.payload.data).toBe('')
       const exitEvent = sent.find((s) => s.channel === IPC_CHANNELS.pty.exit)
-      expect(exitEvent?.payload).toEqual({ ptyId, exitCode: 0 })
+      expect(exitEvent?.payload).toEqual({ ptyId, exitCode: 0, resumeFailed: false })
     })
 
     it('clears the buffer on kill -> replay is empty string', async () => {
@@ -285,8 +305,9 @@ describe('pty/manager', () => {
 
   describe('reconcile hooks', () => {
     it('a resume spawn preclaims the session and registers a pending spawn with the expected session id', async () => {
-      await mgr.spawnPty(getWindow, { projectKey: 'proj-1', resumeSessionId: 'sess-42' })
+      const result = await mgr.spawnPty(getWindow, { projectKey: 'proj-1', resumeSessionId: 'sess-42' })
 
+      expect(result).toEqual({ ptyId: expect.any(String), resumed: true })
       expect(preclaimSession).toHaveBeenCalledWith('sess-42')
       expect(registerPendingSpawn).toHaveBeenCalledWith(
         expect.any(String),
@@ -297,12 +318,13 @@ describe('pty/manager', () => {
 
       const spawnMock = vi.mocked(nodePty.spawn)
       const [, args] = spawnMock.mock.calls[spawnMock.mock.calls.length - 1]
-      expect(args).toContain('claude --resume sess-42')
+      expect(args).toEqual(['-NoLogo', '-NoProfile', '-Command', 'clauded --resume sess-42'])
     })
 
     it('a fresh spawn does not preclaim and registers a pending spawn with undefined expected session id', async () => {
-      await mgr.spawnPty(getWindow, { projectKey: 'proj-1' })
+      const result = await mgr.spawnPty(getWindow, { projectKey: 'proj-1' })
 
+      expect(result).toEqual({ ptyId: expect.any(String), resumed: false })
       expect(preclaimSession).not.toHaveBeenCalled()
       expect(registerPendingSpawn).toHaveBeenCalledWith(
         expect.any(String),
@@ -313,7 +335,143 @@ describe('pty/manager', () => {
 
       const spawnMock = vi.mocked(nodePty.spawn)
       const [, args] = spawnMock.mock.calls[spawnMock.mock.calls.length - 1]
-      expect(args).toContain('clauded')
+      expect(args).toEqual(['-NoLogo', '-NoProfile', '-Command', 'clauded'])
     })
+  })
+
+  describe('resume downgrade', () => {
+    it('downgrades to a fresh clauded with a notice when the transcript is missing', async () => {
+      locateTranscript.mockImplementation(async () => null)
+
+      const result = await mgr.spawnPty(getWindow, { projectKey: 'proj-1', resumeSessionId: 'sess-42' })
+
+      expect(result).toEqual({ ptyId: expect.any(String), resumed: false })
+      expect(preclaimSession).not.toHaveBeenCalled()
+      expect(registerPendingSpawn).toHaveBeenCalledWith(
+        expect.any(String),
+        'proj-1',
+        expect.any(Number),
+        undefined
+      )
+
+      const spawnMock = vi.mocked(nodePty.spawn)
+      const [, args] = spawnMock.mock.calls[spawnMock.mock.calls.length - 1]
+      const command = (args as string[])[3]
+      expect(command.startsWith("Write-Host 'prompt-board:")).toBe(true)
+      expect(command.endsWith('clauded')).toBe(true)
+    })
+
+    it('prints the notice when freshFallback is requested even without a resume id', async () => {
+      const result = await mgr.spawnPty(getWindow, { projectKey: 'proj-1', freshFallback: true })
+
+      expect(result).toEqual({ ptyId: expect.any(String), resumed: false })
+
+      const spawnMock = vi.mocked(nodePty.spawn)
+      const [, args] = spawnMock.mock.calls[spawnMock.mock.calls.length - 1]
+      const command = (args as string[])[3]
+      expect(command.startsWith("Write-Host 'prompt-board:")).toBe(true)
+      expect(command.endsWith('clauded')).toBe(true)
+    })
+
+    it('a plain spawn has no notice and argv is exactly clauded', async () => {
+      await mgr.spawnPty(getWindow, { projectKey: 'proj-1' })
+
+      const spawnMock = vi.mocked(nodePty.spawn)
+      const [, args] = spawnMock.mock.calls[spawnMock.mock.calls.length - 1]
+      expect(args).toEqual(['-NoLogo', '-NoProfile', '-Command', 'clauded'])
+    })
+  })
+
+  describe('reconcile release wiring', () => {
+    it('killPty and pty exit both release the pid-anchored binding via listPtyBindings()', async () => {
+      const reconcileActual = reconcileActualRef.current!
+      const noopWin = { isDestroyed: () => false, webContents: { send: vi.fn() } }
+      const makeSession = (pid: number, sessionId: string) => ({
+        pid,
+        sessionId,
+        cwd: 'C:/tmp/proj',
+        status: 'idle' as const,
+        startedAt: 1000,
+        updatedAt: 1000,
+        statusUpdatedAt: 1000
+      })
+      const makeSnapshot = (sessions: ReturnType<typeof makeSession>[]) => ({
+        projects: [
+          { projectKey: 'proj-1', name: 'P', source: 'auto' as const, needsAttention: false, sessions }
+        ]
+      })
+
+      const { ptyId: killedPtyId } = await spawnFake()
+      reconcileActual.registerPendingSpawn(killedPtyId, 'proj-1', 1000)
+      reconcileActual.reconcilePendingSpawns(
+        makeSnapshot([makeSession(1, 'sess-kill')]),
+        () => noopWin as never
+      )
+
+      const { ptyId: exitedPtyId, fake } = await spawnFake()
+      reconcileActual.registerPendingSpawn(exitedPtyId, 'proj-1', 1000)
+      reconcileActual.reconcilePendingSpawns(
+        makeSnapshot([makeSession(2, 'sess-exit')]),
+        () => noopWin as never
+      )
+
+      expect(reconcileActual.listPtyBindings()).toEqual(
+        expect.arrayContaining([
+          { ptyId: killedPtyId, sessionId: 'sess-kill' },
+          { ptyId: exitedPtyId, sessionId: 'sess-exit' }
+        ])
+      )
+
+      mgr.killPty(killedPtyId)
+      fake.emitExit(0)
+
+      expect(reconcileActual.listPtyBindings()).toEqual([])
+    })
+  })
+
+  describe('resume failure net', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('marks resumeFailed when the resume pty exits quickly while still unclaimed', async () => {
+      isPendingSpawn.mockReturnValue(true)
+      const { ptyId, fake } = await spawnFake2({ projectKey: 'proj-1', resumeSessionId: 'sess-42' })
+
+      fake.emitExit(1)
+
+      const exitEvent = sent.find((s) => s.channel === IPC_CHANNELS.pty.exit)
+      expect(exitEvent?.payload).toEqual({ ptyId, exitCode: 1, resumeFailed: true })
+    })
+
+    it('does not mark resumeFailed once the pty has been claimed (isPendingSpawn false)', async () => {
+      isPendingSpawn.mockReturnValue(false)
+      const { ptyId, fake } = await spawnFake2({ projectKey: 'proj-1', resumeSessionId: 'sess-42' })
+
+      fake.emitExit(1)
+
+      const exitEvent = sent.find((s) => s.channel === IPC_CHANNELS.pty.exit)
+      expect(exitEvent?.payload).toEqual({ ptyId, exitCode: 1, resumeFailed: false })
+    })
+
+    it('does not mark resumeFailed once the failure window has elapsed', async () => {
+      vi.useFakeTimers()
+      isPendingSpawn.mockReturnValue(true)
+      const { ptyId, fake } = await spawnFake2({ projectKey: 'proj-1', resumeSessionId: 'sess-42' })
+
+      vi.advanceTimersByTime(10001)
+      fake.emitExit(1)
+
+      const exitEvent = sent.find((s) => s.channel === IPC_CHANNELS.pty.exit)
+      expect(exitEvent?.payload).toEqual({ ptyId, exitCode: 1, resumeFailed: false })
+    })
+
+    async function spawnFake2(
+      input: Parameters<typeof mgr.spawnPty>[1]
+    ): Promise<{ ptyId: string; fake: (typeof fakePtys)[number] }> {
+      const { ptyId } = await mgr.spawnPty(getWindow, input)
+      const fake = fakePtys[fakePtys.length - 1]
+      return { ptyId, fake }
+    }
   })
 })

@@ -37,6 +37,7 @@ export function TerminalPane({ projectKey }: TerminalPaneProps): React.JSX.Eleme
         status: SessionStatus
         waitingFor?: string
         dismissable: boolean
+        acknowledged: boolean
         sessionId: string
         statusUpdatedAt: number
       }
@@ -48,6 +49,7 @@ export function TerminalPane({ projectKey }: TerminalPaneProps): React.JSX.Eleme
           status: s.status,
           waitingFor: s.waitingFor,
           dismissable: isIdleUnacknowledged(s),
+          acknowledged: s.acknowledged === true,
           sessionId: s.sessionId,
           statusUpdatedAt: s.statusUpdatedAt
         }

@@ -29,7 +29,7 @@ describe('reloadTerminal', () => {
   beforeEach(() => {
     spawn.mockReset()
     kill.mockReset()
-    spawn.mockResolvedValue({ ptyId: 'new-pty' })
+    spawn.mockResolvedValue({ ptyId: 'new-pty', resumed: true })
     kill.mockResolvedValue(undefined)
     addTerminal = vi.fn()
     closeTerminal = vi.fn()
@@ -101,6 +101,33 @@ describe('reloadTerminal', () => {
       title: 'My Terminal',
       status: 'running',
       sessionId: undefined
+    })
+  })
+
+  it('adds the new terminal with sessionId undefined when the resume was downgraded', async () => {
+    spawn.mockResolvedValue({ ptyId: 'new-pty', resumed: false })
+    const terminal = makeTerminal({ sessionId: 'sess-42', title: 'My Terminal' })
+
+    await reloadTerminal(terminal, 'resume', { addTerminal, closeTerminal })
+
+    expect(addTerminal).toHaveBeenCalledWith({
+      ptyId: 'new-pty',
+      projectKey: PROJECT_KEY,
+      title: 'My Terminal',
+      status: 'running',
+      sessionId: undefined
+    })
+  })
+
+  it('forwards opts.freshFallback into the spawn call', async () => {
+    const terminal = makeTerminal({ sessionId: 'sess-42' })
+
+    await reloadTerminal(terminal, 'fresh', { addTerminal, closeTerminal }, { freshFallback: true })
+
+    expect(spawn).toHaveBeenCalledWith({
+      projectKey: PROJECT_KEY,
+      resumeSessionId: undefined,
+      freshFallback: true
     })
   })
 })

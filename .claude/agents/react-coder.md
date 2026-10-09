@@ -1,8 +1,8 @@
 ---
 name: react-coder
-description: "Use this agent for implementing React renderer code in prompt-board — session-board and kanban components, Zustand stores, dnd-kit drag-and-drop, and the Phase-2 xterm terminal view. Executes a plan (from react-architect or the user). Enforces a pure renderer (no Node/fs), all main access via the typed window.api, and dnd-kit ordering by fractional index."
+description: "Use this agent for implementing React renderer code in prompt-board — session-board and kanban components, Zustand stores, dnd-kit drag-and-drop, and the Phase-2 xterm terminal view. Executes a plan (from react-architect or the user). Enforces a pure renderer (no Node/fs), all main access via the typed window.api, and dnd-kit ordering by fractional index. Sonnet/Haiku-dispatchable: plan-driven work with model \"sonnet\", purely mechanical edits with model \"haiku\"; frontmatter default stays Opus for escalation."
 tools: Bash, Glob, Grep, Read, Edit, Write
-model: sonnet
+model: opus
 color: pink
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: testing-architect
-description: "Use this agent for Vitest test PLANNING in prompt-board — deciding what to test, picking the right test type (Node-env unit tests for main-process logic vs jsdom component tests via React Testing Library), which fixtures/mocks are needed, and which existing test patterns to follow. Produces a plan that testing-coder executes. Reads and reasons — returns a plan, never writes tests."
+description: "Use this agent for Vitest test PLANNING in prompt-board — deciding what to test, picking the right test type (Node-env unit tests for main-process logic vs jsdom component tests via React Testing Library), which fixtures/mocks are needed, and which existing test patterns to follow. Produces a plan that testing-coder executes. Reads and reasons — returns a plan, never writes tests. Always Opus (effort high, xhigh for hard plans), never Fable."
 tools: Bash, Read, Glob, Grep, Write, Agent(Explore, general-purpose)
 model: opus
 color: orange
@@ -41,6 +41,6 @@ You plan Vitest tests for prompt-board. You never write test code — you produc
 
 ## Reading discipline
 Follow the model-tier reading split in `.claude/rules/workflow.md`: delegate broad test-suite surveys
-to a Haiku `Explore` sub-agent (`model: "haiku"`), read only the 1–3 files the plan hinges on
+to a Haiku `Explore` sub-agent (`model: "haiku"`; fallback `model: "sonnet"` at low effort only if Haiku is unavailable or its sweep comes back thin; Haiku effort: low for plain greps, medium for broad mapping), read only the 1–3 files the plan hinges on
 directly, and stop when you have enough. Use findings already in your brief before issuing any reads.
 The executing coder (`testing-coder`) handles implementation reads and writes.

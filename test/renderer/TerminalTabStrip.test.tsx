@@ -4,10 +4,13 @@ import { cleanup, fireEvent, render } from '@testing-library/react'
 import type { TerminalMeta } from '../../src/renderer/src/store/terminalsSlice'
 import type { SessionStatus } from '../../src/shared/types'
 
-const { acknowledge } = vi.hoisted(() => ({ acknowledge: vi.fn() }))
+const { acknowledge, unacknowledge } = vi.hoisted(() => ({
+  acknowledge: vi.fn(),
+  unacknowledge: vi.fn()
+}))
 
 vi.mock('../../src/renderer/src/lib/api', () => ({
-  api: { sessions: { acknowledge } }
+  api: { sessions: { acknowledge, unacknowledge } }
 }))
 
 import { TerminalTabStrip } from '../../src/renderer/src/features/terminal/TerminalTabStrip'
@@ -18,6 +21,7 @@ type StatusEntry = {
   status: SessionStatus
   waitingFor?: string
   dismissable: boolean
+  acknowledged: boolean
   sessionId: string
   statusUpdatedAt: number
 }
@@ -37,6 +41,7 @@ describe('TerminalTabStrip', () => {
   afterEach(() => {
     cleanup()
     acknowledge.mockClear()
+    unacknowledge.mockClear()
   })
 
   it('renders the unlinked placeholder dot when there is no statusByPtyId entry, and it is not clickable', () => {
@@ -68,6 +73,7 @@ describe('TerminalTabStrip', () => {
       'pty-linked': {
         status: 'idle',
         dismissable: true,
+        acknowledged: false,
         sessionId: 'sess-1',
         statusUpdatedAt: 12345
       }
@@ -102,6 +108,7 @@ describe('TerminalTabStrip', () => {
       'pty-busy': {
         status: 'busy',
         dismissable: false,
+        acknowledged: false,
         sessionId: 'sess-2',
         statusUpdatedAt: 999
       }
@@ -121,5 +128,41 @@ describe('TerminalTabStrip', () => {
     const dot = container.querySelector('.terminal-tabs__status-dot--busy')
     expect(dot).not.toBeNull()
     expect(dot?.getAttribute('role')).toBeNull()
+  })
+
+  it('renders the interactive idle/dismissable dot for an acknowledged idle session and unacknowledges on click without selecting the tab', () => {
+    const terminal = makeTerminal({ ptyId: 'pty-acked' })
+    const statusByPtyId: Record<string, StatusEntry> = {
+      'pty-acked': {
+        status: 'idle',
+        dismissable: false,
+        acknowledged: true,
+        sessionId: 'sess-3',
+        statusUpdatedAt: 5555
+      }
+    }
+    const onSelect = vi.fn()
+    const { container } = render(
+      <TerminalTabStrip
+        terminals={[terminal]}
+        activePtyId={undefined}
+        statusByPtyId={statusByPtyId}
+        onSelect={onSelect}
+        onClose={vi.fn()}
+        onNew={vi.fn()}
+        onReload={vi.fn()}
+      />
+    )
+
+    const dot = container.querySelector('.terminal-tabs__status-dot--idle')
+    expect(dot).not.toBeNull()
+    expect(dot?.className).toContain('terminal-tabs__status-dot--dismissable')
+    expect(dot?.getAttribute('title')).toBe('Mark as needing attention')
+    expect(dot?.getAttribute('role')).toBe('button')
+
+    fireEvent.click(dot as Element)
+
+    expect(unacknowledge).toHaveBeenCalledWith('sess-3')
+    expect(onSelect).not.toHaveBeenCalled()
   })
 })

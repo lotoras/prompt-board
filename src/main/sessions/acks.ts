@@ -28,3 +28,9 @@ export async function acknowledgeSession(sessionId: string, statusUpdatedAt: num
   acks[sessionId] = statusUpdatedAt
   await writeJsonFile(filePath(), acks)
 }
+
+export async function unacknowledgeSession(sessionId: string): Promise<void> {
+  const acks = await load()
+  delete acks[sessionId]
+  await writeJsonFile(filePath(), acks)
+}

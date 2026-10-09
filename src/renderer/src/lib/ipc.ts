@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { api } from './api'
 import { useStore } from '../store'
 import { buildPersistedSnapshot } from '../features/terminal/persistedSnapshot'
+import { reloadTerminal } from '../features/terminal/reloadTerminal'
 
 // Restore runs exactly once per app launch, even if the bootstrap effect
 // re-mounts (React StrictMode double-invokes effects in dev).
@@ -49,8 +50,19 @@ export function useIpcBootstrap(): void {
       }
     }
 
-    const unsubExit = api.pty.onExit(({ ptyId }) => {
+    const unsubExit = api.pty.onExit(({ ptyId, resumeFailed }) => {
       useStore.getState().markExited(ptyId)
+      const terminal = useStore.getState().terminals[ptyId]
+      if (!resumeFailed || !terminal) return
+      void reloadTerminal(
+        terminal,
+        'fresh',
+        {
+          addTerminal: useStore.getState().addTerminal,
+          closeTerminal: useStore.getState().closeTerminal
+        },
+        { freshFallback: true }
+      ).catch((error) => console.error(error))
     })
     const unsubSession = api.pty.onSession(({ ptyId, sessionId }) => {
       const state = useStore.getState()
@@ -65,6 +77,11 @@ export function useIpcBootstrap(): void {
       state.mutateBoard({ type: 'updateCard', id: cardId, patch: { link: { sessionId, cwd } } })
     })
 
+    void api.pty
+      .getBindings()
+      .then((list) => list.forEach((b) => useStore.getState().setSession(b.ptyId, b.sessionId)))
+      .catch(() => {})
+
     if (!restoreStarted) {
       restoreStarted = true
       void loadProjectsPromise
@@ -73,8 +90,14 @@ export function useIpcBootstrap(): void {
           const newPtyIdBySessionId: Record<string, string> = {}
           for (const { projectKey, sessionId, title } of saved) {
             try {
-              const { ptyId } = await api.pty.spawn({ projectKey, resumeSessionId: sessionId })
-              useStore.getState().addTerminal({ ptyId, projectKey, title, status: 'running', sessionId })
+              const { ptyId, resumed } = await api.pty.spawn({ projectKey, resumeSessionId: sessionId })
+              useStore.getState().addTerminal({
+                ptyId,
+                projectKey,
+                title,
+                status: 'running',
+                sessionId: resumed ? sessionId : undefined
+              })
               newPtyIdBySessionId[sessionId] = ptyId
             } catch {
               // project gone / resume failed — skip this terminal

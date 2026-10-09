@@ -1,8 +1,8 @@
 ---
 name: testing-coder
-description: "Use this agent for writing Vitest tests in prompt-board — Node-env unit tests for main-process logic and jsdom component tests (React Testing Library) for renderer UI. Executes a plan (from testing-architect or the user). Enforces deterministic, hermetic tests that use fixtures instead of the live ~/.claude."
+description: "Use this agent for writing Vitest tests in prompt-board — Node-env unit tests for main-process logic and jsdom component tests (React Testing Library) for renderer UI. Executes a plan (from testing-architect or the user). Enforces deterministic, hermetic tests that use fixtures instead of the live ~/.claude. Sonnet/Haiku-dispatchable: plan-driven work with model \"sonnet\", purely mechanical edits with model \"haiku\"; frontmatter default stays Opus for escalation."
 tools: Bash, Glob, Grep, Read, Edit, Write
-model: sonnet
+model: opus
 color: green
 ---
 

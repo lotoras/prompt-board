@@ -9,6 +9,7 @@ import { killAllPtys } from './pty/manager'
 import { startSessionsWatcher, stopSessionsWatcher } from './sessions/watcher'
 import { startSync, stopSync } from './sync/engine'
 import { attachWindowInset } from './window/inset'
+import { restoreLog } from './lib/restoreLog'
 
 process.on('uncaughtException', (err) => {
   console.error('[main] uncaughtException', err)
@@ -38,7 +39,7 @@ function createWindow(): void {
     height: 670,
     show: false,
     autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -60,6 +61,14 @@ function createWindow(): void {
 
   win.webContents.on('did-fail-load', (_e, code, desc, url) => {
     console.error('[main] did-fail-load', code, desc, url)
+  })
+
+  let rendererLoads = 0
+  win.webContents.on('did-finish-load', () => {
+    restoreLog('renderer:loaded', { load: ++rendererLoads, mainPid: process.pid })
+  })
+  win.webContents.on('render-process-gone', (_e, details) => {
+    restoreLog('renderer:gone', { reason: details.reason, exitCode: details.exitCode })
   })
 
   // HMR for renderer base on electron-vite cli.
@@ -123,6 +132,7 @@ if (gotLock) {
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
+  restoreLog('window-all-closed')
   stopSessionsWatcher()
   stopSync()
   if (process.platform !== 'darwin') {
@@ -131,6 +141,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  restoreLog('before-quit')
   killAllPtys()
 })
 

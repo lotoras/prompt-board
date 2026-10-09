@@ -2,10 +2,18 @@ import { randomUUID } from 'crypto'
 import type { BrowserWindow } from 'electron'
 import type { IPty } from 'node-pty'
 import { IPC_CHANNELS } from '../../shared/types'
-import type { PtySpawnInput } from '../../shared/types'
+import type { PtySpawnInput, PtySpawnResult } from '../../shared/types'
 import { assertProjectDirectory, listProjects } from '../projects/store'
-import { clearPendingSpawn, preclaimSession, registerPendingSpawn } from './reconcile'
+import {
+  clearPendingSpawn,
+  isPendingSpawn,
+  preclaimSession,
+  registerPendingSpawn,
+  releasePtyBinding
+} from './reconcile'
 import { scheduleQueryInjection } from './queryInjector'
+import { locateTranscript } from '../sessions/transcript'
+import { restoreLog } from '../lib/restoreLog'
 
 type PtyModule = typeof import('node-pty')
 
@@ -38,6 +46,7 @@ const MAX_BUFFER = 256 * 1024
 
 const DEFAULT_COLS = 80
 const DEFAULT_ROWS = 24
+const RESUME_FAILURE_MS = 10000
 
 /**
  * Spawn `clauded` for a manually configured project (requires a
@@ -47,7 +56,7 @@ const DEFAULT_ROWS = 24
 export async function spawnPty(
   getWindow: () => BrowserWindow | null,
   input: PtySpawnInput
-): Promise<{ ptyId: string }> {
+): Promise<PtySpawnResult> {
   const pty = loadPty()
   if (!pty) throw new Error('pty not available')
 
@@ -64,9 +73,18 @@ export async function spawnPty(
   }
 
   const ptyId = randomUUID()
-  const args = input.resumeSessionId
-    ? ['-NoLogo', '-NoProfile', '-Command', `claude --resume ${input.resumeSessionId}`]
-    : ['-NoLogo', '-NoProfile', '-Command', 'clauded']
+
+  const NOTICE =
+    "Write-Host 'prompt-board: could not resume previous session - started fresh' -ForegroundColor DarkGray; "
+
+  const resumeSessionId =
+    input.resumeSessionId && (await locateTranscript(input.resumeSessionId))
+      ? input.resumeSessionId
+      : undefined
+  const downgraded = Boolean(input.resumeSessionId) && !resumeSessionId
+  const notice = downgraded || input.freshFallback ? NOTICE : ''
+  const command = resumeSessionId ? `clauded --resume ${resumeSessionId}` : `${notice}clauded`
+  const args = ['-NoLogo', '-NoProfile', '-Command', command]
   const ptyProcess = pty.spawn('powershell.exe', args, {
     cwd: project.basePath,
     cols: DEFAULT_COLS,
@@ -79,10 +97,19 @@ export async function spawnPty(
   buffers.set(ptyId, '')
 
   const spawnedAt = Date.now()
-  if (input.resumeSessionId) {
-    preclaimSession(input.resumeSessionId)
+  if (resumeSessionId) {
+    preclaimSession(resumeSessionId)
   }
-  registerPendingSpawn(ptyId, input.projectKey, spawnedAt, input.resumeSessionId)
+  registerPendingSpawn(ptyId, input.projectKey, spawnedAt, resumeSessionId)
+  restoreLog('spawn', {
+    ptyId,
+    pid: ptyProcess.pid,
+    projectKey: input.projectKey,
+    requestedResume: input.resumeSessionId,
+    resumed: Boolean(resumeSessionId),
+    downgraded,
+    freshFallback: Boolean(input.freshFallback)
+  })
 
   ptyProcess.onData((data) => {
     const next = (buffers.get(ptyId) ?? '') + data
@@ -94,12 +121,25 @@ export async function spawnPty(
   })
 
   ptyProcess.onExit(({ exitCode }) => {
+    const resumeFailed =
+      Boolean(resumeSessionId) &&
+      isPendingSpawn(ptyId) &&
+      Date.now() - spawnedAt < RESUME_FAILURE_MS
+    const win = getWindow()
+    restoreLog('exit', {
+      ptyId,
+      exitCode,
+      resumeFailed,
+      stillPending: isPendingSpawn(ptyId),
+      aliveMs: Date.now() - spawnedAt,
+      windowAlive: Boolean(win && !win.isDestroyed())
+    })
     sessions.delete(ptyId)
     buffers.delete(ptyId)
     clearPendingSpawn(ptyId)
-    const win = getWindow()
+    releasePtyBinding(ptyId)
     if (win && !win.isDestroyed()) {
-      win.webContents.send(IPC_CHANNELS.pty.exit, { ptyId, exitCode })
+      win.webContents.send(IPC_CHANNELS.pty.exit, { ptyId, exitCode, resumeFailed })
     }
   })
 
@@ -107,7 +147,7 @@ export async function spawnPty(
     scheduleQueryInjection(ptyProcess, input.initialQuery, spawnedAt)
   }
 
-  return { ptyId }
+  return { ptyId, resumed: Boolean(resumeSessionId) }
 }
 
 export function writePty(ptyId: string, data: string): void {
@@ -129,6 +169,7 @@ export function resizePty(ptyId: string, cols: number, rows: number): void {
 export function killPty(ptyId: string): void {
   const session = sessions.get(ptyId)
   if (!session) return
+  restoreLog('kill', { ptyId, pid: session.pty.pid })
   try {
     session.pty.kill()
   } catch (err) {
@@ -137,12 +178,17 @@ export function killPty(ptyId: string): void {
   sessions.delete(ptyId)
   buffers.delete(ptyId)
   clearPendingSpawn(ptyId)
+  releasePtyBinding(ptyId)
 }
 
 export function killAllPtys(): void {
+  restoreLog('killAll', {
+    ptys: [...sessions].map(([ptyId, s]) => ({ ptyId, pid: s.pty.pid }))
+  })
   for (const [ptyId, session] of sessions) {
     session.pty.kill()
     clearPendingSpawn(ptyId)
+    releasePtyBinding(ptyId)
   }
   sessions.clear()
   buffers.clear()

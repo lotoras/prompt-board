@@ -66,24 +66,30 @@ Reorder writes a fractional-index `order` (no mass renumber). Persist to
 the minimal change, delegate to sub-agents, then verify.
 
 **All code edits MUST go through sub-agents — no direct `Edit` / `Write` from the main thread, even
-for one-line changes.** The main Claude plans and verifies only. Dispatch by layer:
+for one-line changes.** *(Opus sessions: see the direct-edit exception — never on Fable.)* The main Claude plans and verifies only. Dispatch by layer:
 - **Main-process / IPC / filesystem / OS / kanban store / pty (Phase 2)** →
   `electron-main-architect` (plan) then `electron-main-coder` (build).
 - **React renderer — UI, components, Zustand state, dnd-kit boards, xterm view (Phase 2)** →
   `react-architect` (plan) then `react-coder` (build).
 - **Tests (Vitest unit + React Testing Library component)** → `testing-architect` (plan) then
   `testing-coder` (write).
-- **Broad exploration / usage mapping / research** → `Explore` sub-agent (`model: "haiku"`).
+- **Broad exploration / usage mapping / research** → `Explore` sub-agent (`model: "haiku"`) for
+  locate sweeps (Haiku effort: low for plain greps, medium for broad mapping) and verify/check passes (effort low); judgment reads (summarise, audit, compare) → `model: "opus"` at low effort.
 
 **Model policy:** domain architects run on **Opus** by default and are **Fable-upgradeable** in
 non-Fable sessions only — when the task explicitly says to use Fable (e.g. via cc-enhance "use
 fable") and the session is NOT on Fable 5, dispatch them with `model: "fable"` (dispatch-time
 override beats the frontmatter default); in Fable 5 sessions architects always stay Opus — the
-orchestrator's plan review is the Fable pass, never double-pay. Test planning (`testing-architect`) is
-always **Opus**; all coders execute on **Sonnet**; exploration is always **Haiku** (`Explore` /
-`general-purpose` with `model: "haiku"`). **Fable 5 sessions** are strict orchestrators — no direct
-`Edit`/`Write`, ever. **Opus sessions** plan in the main thread; the micro-edit exception (one file,
-a few lines, location known) applies only to Opus, never Fable. The after-task simplify/review pass
+orchestrator's plan review is the Fable pass, never double-pay. Architect effort ladder: `high` by default, `xhigh` for hard/cross-cutting designs, then Fable via the explicit upgrade. Test planning (`testing-architect`) is
+always **Opus**; coders keep `model: opus` in frontmatter but plan-driven / well-specified coding and test
+writing are dispatched with `model: "sonnet"` (**Sonnet**, effort `medium`), and purely mechanical, exactly-specified edits (verbatim find/replace, ID swaps, template copy/sync) with `model: "haiku"` (**Haiku**, escalating to Sonnet on failed verification) — agent frontmatter can't set effort; the effort values apply to workflow `agent()` stages — plain `Agent` dispatches run at the session effort); escalate to **Opus** for
+cross-cutting, security or migration work, no written plan, a single dependent chain, or a Sonnet coder that returned blocked / failed verification (a stuck Sonnet coder returns `Open
+questions` instead of guessing — ask the architect or re-dispatch on Opus); locate exploration is
+**Haiku** (`Explore` / `general-purpose` with `model: "haiku"`; fallback `model: "sonnet"` at low
+effort only if Haiku is unavailable or its sweep comes back thin; Haiku effort: low for plain greps, medium for broad mapping), verify/check passes run on **Haiku** (effort low), judgment reads run **Opus at low effort**. Route each role to the cheapest tier that holds quality: sweep effort before switching model; cheaper workers pay off for well-specified or parallel work, not for a single dependent chain. **Fable 5 sessions** are strict orchestrators — no direct
+`Edit`/`Write`, ever. **Opus sessions** plan in the main thread; any single-file change, or a small
+sequential change whose context the main thread already holds, may be done directly — only on
+Opus, never Fable; delegate to an Opus coder when work fans out or bulky reads would flood context. The after-task simplify/review pass
 is handled by the global threebrain Stop hook — its routing lives there, not here.
 
 Multi-layer changes dispatch multiple coders **in parallel** (single message, multiple `Agent` tool

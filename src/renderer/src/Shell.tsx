@@ -6,6 +6,7 @@ import { ProjectEditorModal } from './features/projects/ProjectEditorModal'
 import { SyncSettingsModal } from './features/sync/SyncSettingsModal'
 import { SessionBoard } from './features/sessions/SessionBoard'
 import { KanbanBoard } from './features/kanban/KanbanBoard'
+import { AktuellesList } from './features/kanban/AktuellesList'
 import { TerminalPane } from './features/terminal/TerminalPane'
 import type { ProjectTab } from './store/uiSlice'
 import './shell.css'
@@ -19,6 +20,8 @@ const TABS: { id: ProjectTab; label: string }[] = [
 export function Shell(): React.JSX.Element {
   const view = useStore((s) => s.view)
   const setProjectTab = useStore((s) => s.setProjectTab)
+  const globalBoardMode = useStore((s) => s.globalBoardMode)
+  const setGlobalBoardMode = useStore((s) => s.setGlobalBoardMode)
   const projectView = useStore((s) =>
     view.kind === 'project' ? s.projectView(view.projectKey) : undefined
   )
@@ -30,7 +33,23 @@ export function Shell(): React.JSX.Element {
         {view.kind === 'global-board' && (
           <>
             <div className="shell__header">Global Board</div>
-            <KanbanBoard projectKey={GLOBAL_BOARD_PROJECT_KEY} />
+            <div className="shell__tabs">
+              {(['board', 'aktuelles'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className={`shell__tab${globalBoardMode === m ? ' shell__tab--active' : ''}`}
+                  onClick={() => setGlobalBoardMode(m)}
+                >
+                  {m === 'board' ? 'Board' : 'Aktuelles'}
+                </button>
+              ))}
+            </div>
+            {globalBoardMode === 'board' ? (
+              <KanbanBoard projectKey={GLOBAL_BOARD_PROJECT_KEY} />
+            ) : (
+              <AktuellesList />
+            )}
           </>
         )}
 
