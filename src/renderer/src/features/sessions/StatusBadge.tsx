@@ -1,21 +1,22 @@
-import type { SessionStatus } from '../../../../shared/types'
+import { statusTone, type SessionStatus } from '../../../../shared/types'
 import './sessions.css'
 
 interface StatusBadgeProps {
   status: SessionStatus
   waitingFor?: string
-  dismissable?: boolean
+  acknowledged?: boolean
   onAcknowledge?: () => void
 }
 
 export function StatusBadge({
   status,
   waitingFor,
-  dismissable,
+  acknowledged,
   onAcknowledge
 }: StatusBadgeProps): React.JSX.Element {
   const label = status === 'waiting' && waitingFor ? `waiting: ${waitingFor}` : status
-  const tone = dismissable ? 'attention' : status
+  const tone = statusTone({ status, acknowledged })
+  const dismissable = tone === 'attention'
 
   return (
     <span className={`status-badge status-badge--${tone}`} title={label}>

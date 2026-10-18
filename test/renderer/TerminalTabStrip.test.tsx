@@ -128,6 +128,10 @@ describe('TerminalTabStrip', () => {
     const dot = container.querySelector('.terminal-tabs__status-dot--busy')
     expect(dot).not.toBeNull()
     expect(dot?.getAttribute('role')).toBeNull()
+
+    fireEvent.click(dot as Element)
+    expect(acknowledge).not.toHaveBeenCalled()
+    expect(unacknowledge).not.toHaveBeenCalled()
   })
 
   it('renders the interactive idle/dismissable dot for an acknowledged idle session and unacknowledges on click without selecting the tab', () => {
@@ -164,5 +168,54 @@ describe('TerminalTabStrip', () => {
 
     expect(unacknowledge).toHaveBeenCalledWith('sess-3')
     expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  function renderWith(entry: StatusEntry): HTMLElement {
+    const { container } = render(
+      <TerminalTabStrip
+        terminals={[makeTerminal({ ptyId: 'pty-w' })]}
+        activePtyId={undefined}
+        statusByPtyId={{ 'pty-w': entry }}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        onNew={vi.fn()}
+        onReload={vi.fn()}
+      />
+    )
+    return container
+  }
+
+  it('renders a waiting unacknowledged dot as clickable attention and acknowledges on click', () => {
+    const container = renderWith({
+      status: 'waiting',
+      dismissable: true,
+      acknowledged: false,
+      sessionId: 'sess-w',
+      statusUpdatedAt: 777
+    })
+    const dot = container.querySelector('.terminal-tabs__status-dot--attention')
+    expect(dot).not.toBeNull()
+    expect(dot?.className).toContain('terminal-tabs__status-dot--dismissable')
+    expect(dot?.getAttribute('role')).toBe('button')
+
+    fireEvent.click(dot as Element)
+    expect(acknowledge).toHaveBeenCalledWith('sess-w', 777)
+  })
+
+  it('renders an acknowledged waiting dot as idle and unacknowledges on click', () => {
+    const container = renderWith({
+      status: 'waiting',
+      dismissable: false,
+      acknowledged: true,
+      sessionId: 'sess-w2',
+      statusUpdatedAt: 888
+    })
+    const dot = container.querySelector('.terminal-tabs__status-dot--idle')
+    expect(dot).not.toBeNull()
+    expect(dot?.className).toContain('terminal-tabs__status-dot--dismissable')
+
+    fireEvent.click(dot as Element)
+    expect(unacknowledge).toHaveBeenCalledWith('sess-w2')
+    expect(acknowledge).not.toHaveBeenCalled()
   })
 })

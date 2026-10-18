@@ -15,7 +15,7 @@ import { listPtyBindings } from './pty/reconcile'
 import { restoreLog } from './lib/restoreLog'
 import { acknowledgeSession, unacknowledgeSession } from './sessions/acks'
 import { buildSnapshot } from './sessions/snapshot'
-import { triggerSnapshotRefresh } from './sessions/watcher'
+import { refreshSnapshotNow, triggerSnapshotRefresh } from './sessions/watcher'
 import { configure, getConfigView, getSyncStatus, signOut } from './sync/engine'
 import { computeBottomInset } from './window/inset'
 
@@ -32,14 +32,20 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(
     IPC_CHANNELS.sessions.acknowledge,
     async (_event, sessionId: string, statusUpdatedAt: number) => {
-      await acknowledgeSession(sessionId, statusUpdatedAt)
-      triggerSnapshotRefresh(getWindow)
+      try {
+        await acknowledgeSession(sessionId, statusUpdatedAt)
+      } finally {
+        void refreshSnapshotNow(getWindow)
+      }
     }
   )
 
   ipcMain.handle(IPC_CHANNELS.sessions.unacknowledge, async (_event, sessionId: string) => {
-    await unacknowledgeSession(sessionId)
-    triggerSnapshotRefresh(getWindow)
+    try {
+      await unacknowledgeSession(sessionId)
+    } finally {
+      void refreshSnapshotNow(getWindow)
+    }
   })
 
   ipcMain.handle(IPC_CHANNELS.projects.list, async () => {

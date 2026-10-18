@@ -82,6 +82,11 @@ describe('mergeSessions', () => {
       expect(waiting.projects[0].needsAttention).toBe(true)
     })
 
+    it('does not flag needsAttention for an acknowledged waiting session', () => {
+      const result = mergeSessions([], [makeSession({ status: 'waiting', acknowledged: true })])
+      expect(result.projects[0].needsAttention).toBe(false)
+    })
+
     it('sorts needsAttention projects first, then by latest activity', () => {
       const attentionProject = makeSession({
         pid: 1,

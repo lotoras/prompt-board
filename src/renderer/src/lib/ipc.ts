@@ -22,7 +22,10 @@ export function useIpcBootstrap(): void {
     const setBoards = useStore.getState().setBoards
     const setSyncStatus = useStore.getState().setSyncStatus
 
-    api.sessions.list().then(setSnapshot).catch((error) => {
+    let pushed = false
+    api.sessions.list().then((snapshot) => {
+      if (!pushed) setSnapshot(snapshot)
+    }).catch((error) => {
       console.error(error)
       useStore.getState().setSessionsError("Couldn't load sessions — retrying…")
     })
@@ -30,7 +33,10 @@ export function useIpcBootstrap(): void {
     loadBoards()
     api.sync.getStatus().then(setSyncStatus)
 
-    const unsubscribe = api.sessions.onChanged(setSnapshot)
+    const unsubscribe = api.sessions.onChanged((snapshot) => {
+      pushed = true
+      setSnapshot(snapshot)
+    })
     const unsubProjects = api.projects.onChanged(setProjects)
     const unsubBoards = api.kanban.onChanged(setBoards)
     const unsubSyncStatus = api.sync.onStatus(setSyncStatus)

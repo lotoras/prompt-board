@@ -13,21 +13,51 @@ let watcher: FSWatcher | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 let lastSnapshotJson = ''
+let running = false
+let rerun = false
+let forceNext = false
 
-async function recomputeAndEmit(getWindow: () => BrowserWindow | null): Promise<void> {
+async function recomputeOnce(getWindow: () => BrowserWindow | null, force: boolean): Promise<void> {
   try {
     const snapshot = await buildSnapshot()
     refreshPtyBindings(snapshot, getWindow)
     reconcilePendingSpawns(snapshot, getWindow)
     const json = JSON.stringify(snapshot)
-    if (json === lastSnapshotJson) return
+    if (!force && json === lastSnapshotJson) return
     lastSnapshotJson = json
     const win = getWindow()
     if (win && !win.isDestroyed()) {
       win.webContents.send(IPC_CHANNELS.sessions.changed, snapshot)
     }
   } catch (err) {
-    console.error('recomputeAndEmit failed', err)
+    console.error('recomputeOnce failed', err)
+  }
+}
+
+/**
+ * Single-flight: a call made while a recompute is running queues one
+ * follow-up run instead of overlapping, so an older snapshot can never be
+ * emitted after a newer one. `force` emits even when the snapshot is unchanged.
+ */
+async function recomputeAndEmit(
+  getWindow: () => BrowserWindow | null,
+  force = false
+): Promise<void> {
+  if (force) forceNext = true
+  if (running) {
+    rerun = true
+    return
+  }
+  running = true
+  try {
+    do {
+      rerun = false
+      const forceThis = forceNext
+      forceNext = false
+      await recomputeOnce(getWindow, forceThis)
+    } while (rerun)
+  } finally {
+    running = false
   }
 }
 
@@ -60,6 +90,13 @@ export function startSessionsWatcher(getWindow: () => BrowserWindow | null): voi
 
 export function triggerSnapshotRefresh(getWindow: () => BrowserWindow | null): void {
   scheduleDebounced(getWindow)
+}
+
+/** Recompute immediately and always emit, so the renderer drops any optimistic state. */
+export function refreshSnapshotNow(getWindow: () => BrowserWindow | null): Promise<void> {
+  if (debounceTimer) clearTimeout(debounceTimer)
+  debounceTimer = null
+  return recomputeAndEmit(getWindow, true)
 }
 
 export function stopSessionsWatcher(): void {

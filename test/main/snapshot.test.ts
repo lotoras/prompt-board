@@ -80,31 +80,36 @@ describe('buildSnapshot', () => {
       expect(enrichedB?.aiTitle).toBe('Title B')
     })
 
-    it('marks an idle session acknowledged when the ack store has a matching statusUpdatedAt', async () => {
-      const idle = makeSession({ sessionId: 'idle-1', status: 'idle', statusUpdatedAt: 42 })
-      readRegistryMock.mockResolvedValue([idle])
-      filterAliveSessionsMock.mockResolvedValue([idle])
-      getAcksMock.mockResolvedValue({ 'idle-1': 42 })
+    it.each(['idle', 'waiting'] as const)(
+      'marks a %s session acknowledged when the ack store has a matching statusUpdatedAt',
+      async (status) => {
+        const s = makeSession({ sessionId: 's-1', status, statusUpdatedAt: 42 })
+        readRegistryMock.mockResolvedValue([s])
+        filterAliveSessionsMock.mockResolvedValue([s])
+        getAcksMock.mockResolvedValue({ 's-1': 42 })
 
-      const { buildSnapshot } = await loadSnapshot()
-      const result = await buildSnapshot()
-      const sessions = result.projects.flatMap((p) => p.sessions)
-      expect(sessions[0].acknowledged).toBe(true)
-    })
+        const { buildSnapshot } = await loadSnapshot()
+        const result = await buildSnapshot()
+        expect(result.projects.flatMap((p) => p.sessions)[0].acknowledged).toBe(true)
+      }
+    )
 
-    it('leaves an idle session unacknowledged when the ack is stale or missing', async () => {
-      const stale = makeSession({ sessionId: 'idle-stale', status: 'idle', statusUpdatedAt: 42 })
-      const missing = makeSession({ sessionId: 'idle-missing', status: 'idle', statusUpdatedAt: 42 })
-      readRegistryMock.mockResolvedValue([stale, missing])
-      filterAliveSessionsMock.mockResolvedValue([stale, missing])
-      getAcksMock.mockResolvedValue({ 'idle-stale': 1 })
+    it.each(['idle', 'waiting'] as const)(
+      'leaves a %s session unacknowledged when the ack is stale or missing',
+      async (status) => {
+        const stale = makeSession({ sessionId: 'stale', status, statusUpdatedAt: 42 })
+        const missing = makeSession({ sessionId: 'missing', status, statusUpdatedAt: 42 })
+        readRegistryMock.mockResolvedValue([stale, missing])
+        filterAliveSessionsMock.mockResolvedValue([stale, missing])
+        getAcksMock.mockResolvedValue({ stale: 1 })
 
-      const { buildSnapshot } = await loadSnapshot()
-      const result = await buildSnapshot()
-      const sessions = result.projects.flatMap((p) => p.sessions)
-      expect(sessions.find((s) => s.sessionId === 'idle-stale')?.acknowledged).toBe(false)
-      expect(sessions.find((s) => s.sessionId === 'idle-missing')?.acknowledged).toBe(false)
-    })
+        const { buildSnapshot } = await loadSnapshot()
+        const result = await buildSnapshot()
+        const sessions = result.projects.flatMap((p) => p.sessions)
+        expect(sessions.find((s) => s.sessionId === 'stale')?.acknowledged).toBe(false)
+        expect(sessions.find((s) => s.sessionId === 'missing')?.acknowledged).toBe(false)
+      }
+    )
 
     it('never marks a busy session acknowledged even with a matching ack entry', async () => {
       const busy = makeSession({ sessionId: 'busy-1', status: 'busy', statusUpdatedAt: 42 })
@@ -132,13 +137,13 @@ describe('buildSnapshot', () => {
       expect(sessions).toEqual([{ ...s1, acknowledged: false }])
     })
 
-    it('resolves to an empty snapshot instead of rejecting when listProjects is unavailable', async () => {
+    it('rejects when listProjects is unavailable', async () => {
       readRegistryMock.mockResolvedValue([])
       filterAliveSessionsMock.mockResolvedValue([])
       listProjectsMock.mockRejectedValue(new Error('projects.json malformed'))
 
       const { buildSnapshot } = await loadSnapshot()
-      await expect(buildSnapshot()).resolves.toEqual({ projects: [] })
+      await expect(buildSnapshot()).rejects.toThrow('projects.json malformed')
     })
   })
 })

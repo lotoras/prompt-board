@@ -1,6 +1,7 @@
 import { api } from '../../lib/api'
+import { useStore } from '../../store'
 import type { TerminalMeta } from '../../store/terminalsSlice'
-import type { SessionStatus } from '../../../../shared/types'
+import { statusTone, type SessionStatus } from '../../../../shared/types'
 import './terminal.css'
 
 interface TerminalTabStripProps {
@@ -11,7 +12,6 @@ interface TerminalTabStripProps {
     {
       status: SessionStatus
       waitingFor?: string
-      dismissable: boolean
       acknowledged: boolean
       sessionId: string
       statusUpdatedAt: number
@@ -36,6 +36,8 @@ export function TerminalTabStrip({
   onNew,
   onReload
 }: TerminalTabStripProps): React.JSX.Element {
+  const acknowledgeSession = useStore((st) => st.acknowledgeSession)
+  const unacknowledgeSession = useStore((st) => st.unacknowledgeSession)
   const handleClose = (e: React.MouseEvent, terminal: TerminalMeta): void => {
     e.stopPropagation()
     if (terminal.status === 'running') {
@@ -49,7 +51,9 @@ export function TerminalTabStrip({
     <div className="terminal-tabs">
       {terminals.map((terminal) => {
         const s = statusByPtyId[terminal.ptyId]
-        const clickable = s ? s.dismissable || s.acknowledged : false
+        const tone = s && statusTone(s)
+        const dismissable = tone === 'attention'
+        const clickable = dismissable || s?.acknowledged === true
         return (
           <button
             key={terminal.ptyId}
@@ -61,9 +65,9 @@ export function TerminalTabStrip({
           >
             {s ? (
               <span
-                className={`terminal-tabs__status-dot terminal-tabs__status-dot--${s.dismissable ? 'attention' : s.status}${clickable ? ' terminal-tabs__status-dot--dismissable' : ''}`}
+                className={`terminal-tabs__status-dot terminal-tabs__status-dot--${tone}${clickable ? ' terminal-tabs__status-dot--dismissable' : ''}`}
                 title={
-                  s.dismissable
+                  dismissable
                     ? 'Mark as idle'
                     : s.acknowledged
                       ? 'Mark as needing attention'
@@ -76,9 +80,9 @@ export function TerminalTabStrip({
                   clickable
                     ? (e) => {
                         e.stopPropagation()
-                        s.dismissable
-                          ? void api.sessions.acknowledge(s.sessionId, s.statusUpdatedAt)
-                          : void api.sessions.unacknowledge(s.sessionId)
+                        dismissable
+                          ? void acknowledgeSession(s.sessionId, s.statusUpdatedAt)
+                          : void unacknowledgeSession(s.sessionId)
                       }
                     : undefined
                 }

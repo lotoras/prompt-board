@@ -8,7 +8,7 @@ import { XtermView } from './XtermView'
 import { TerminalErrorBoundary } from './TerminalErrorBoundary'
 import { reloadTerminal } from './reloadTerminal'
 import type { TerminalMeta } from '../../store/terminalsSlice'
-import { isIdleUnacknowledged, type SessionStatus } from '../../../../shared/types'
+import type { SessionStatus } from '../../../../shared/types'
 import './terminal.css'
 
 interface TerminalPaneProps {
@@ -17,7 +17,7 @@ interface TerminalPaneProps {
 
 export function TerminalPane({ projectKey }: TerminalPaneProps): React.JSX.Element {
   const terminals = useStore(useShallow((s) => s.terminalsFor(projectKey)))
-  const sessions = useStore(useShallow((s) => s.projectView(projectKey)?.sessions ?? []))
+  const projects = useStore((s) => s.snapshot.projects)
   const activePtyId = useStore((s) => s.activeTabByProject[projectKey])
   const addTerminal = useStore((s) => s.addTerminal)
   const closeTerminal = useStore((s) => s.closeTerminal)
@@ -30,13 +30,12 @@ export function TerminalPane({ projectKey }: TerminalPaneProps): React.JSX.Eleme
   const [error, setError] = useState<string | null>(null)
 
   const statusByPtyId = useMemo(() => {
-    const bySession = new Map(sessions.map((s) => [s.sessionId, s]))
+    const bySession = new Map(projects.flatMap((p) => p.sessions).map((s) => [s.sessionId, s]))
     const map: Record<
       string,
       {
         status: SessionStatus
         waitingFor?: string
-        dismissable: boolean
         acknowledged: boolean
         sessionId: string
         statusUpdatedAt: number
@@ -48,14 +47,13 @@ export function TerminalPane({ projectKey }: TerminalPaneProps): React.JSX.Eleme
         map[t.ptyId] = {
           status: s.status,
           waitingFor: s.waitingFor,
-          dismissable: isIdleUnacknowledged(s),
           acknowledged: s.acknowledged === true,
           sessionId: s.sessionId,
           statusUpdatedAt: s.statusUpdatedAt
         }
     }
     return map
-  }, [terminals, sessions])
+  }, [terminals, projects])
 
   const handleNew = async (): Promise<void> => {
     try {

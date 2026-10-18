@@ -86,4 +86,40 @@ describe('readRegistry', () => {
     const result = await readRegistry()
     expect(result).toEqual([])
   })
+
+  it('keeps returning the last-good session when its file later becomes unparsable', async () => {
+    await writeSession('40001.json', {
+      pid: 40001,
+      sessionId: 'good-1',
+      cwd: 'C:\\a\\proj',
+      startedAt: 1,
+      status: 'idle',
+      updatedAt: 2,
+      statusUpdatedAt: 2
+    })
+    const { readRegistry } = await import('../../src/main/sessions/registry')
+    expect(await readRegistry()).toHaveLength(1)
+
+    await fs.writeFile(join(tmpDir, '.claude', 'sessions', '40001.json'), '{"pid": 400', 'utf-8')
+    const result = await readRegistry()
+    expect(result).toHaveLength(1)
+    expect(result[0].sessionId).toBe('good-1')
+  })
+
+  it('drops a cached session once its file is deleted', async () => {
+    await writeSession('40002.json', {
+      pid: 40002,
+      sessionId: 'gone-1',
+      cwd: 'C:\\a\\proj',
+      startedAt: 1,
+      status: 'busy',
+      updatedAt: 2,
+      statusUpdatedAt: 2
+    })
+    const { readRegistry } = await import('../../src/main/sessions/registry')
+    expect(await readRegistry()).toHaveLength(1)
+
+    await fs.rm(join(tmpDir, '.claude', 'sessions', '40002.json'))
+    expect(await readRegistry()).toEqual([])
+  })
 })

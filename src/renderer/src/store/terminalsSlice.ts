@@ -15,6 +15,7 @@ export interface TerminalsSlice {
   terminals: Record<string, TerminalMeta>
   activeTabByProject: Record<string, string>
   pendingCardLinks: Record<string, string>
+  pendingSessionByPtyId: Record<string, string>
   addTerminal: (meta: TerminalMeta) => void
   markExited: (ptyId: string) => void
   setSession: (ptyId: string, sessionId: string) => void
@@ -32,11 +33,17 @@ export const createTerminalsSlice: StateCreator<StoreState, [], [], TerminalsSli
   terminals: {},
   activeTabByProject: {},
   pendingCardLinks: {},
+  pendingSessionByPtyId: {},
   addTerminal: (meta) =>
-    set((state) => ({
-      terminals: { ...state.terminals, [meta.ptyId]: meta },
-      activeTabByProject: { ...state.activeTabByProject, [meta.projectKey]: meta.ptyId }
-    })),
+    set((state) => {
+      const { [meta.ptyId]: buffered, ...pendingRest } = state.pendingSessionByPtyId
+      const applied = meta.sessionId === undefined && buffered ? { ...meta, sessionId: buffered } : meta
+      return {
+        terminals: { ...state.terminals, [meta.ptyId]: applied },
+        activeTabByProject: { ...state.activeTabByProject, [meta.projectKey]: meta.ptyId },
+        pendingSessionByPtyId: pendingRest
+      }
+    }),
   markExited: (ptyId) =>
     set((state) => {
       const existing = state.terminals[ptyId]
@@ -48,7 +55,8 @@ export const createTerminalsSlice: StateCreator<StoreState, [], [], TerminalsSli
   setSession: (ptyId, sessionId) =>
     set((state) => {
       const existing = state.terminals[ptyId]
-      if (!existing) return state
+      if (!existing)
+        return { pendingSessionByPtyId: { ...state.pendingSessionByPtyId, [ptyId]: sessionId } }
       return {
         terminals: { ...state.terminals, [ptyId]: { ...existing, sessionId } }
       }

@@ -1,4 +1,4 @@
-import type { SessionInfo, SessionsSnapshot } from '../../shared/types'
+import { canAcknowledge, type SessionInfo, type SessionsSnapshot } from '../../shared/types'
 import { listProjects } from '../projects/store'
 import { getAcks } from './acks'
 import { filterAliveSessions } from './liveness'
@@ -24,27 +24,22 @@ async function enrichSession(session: SessionInfo): Promise<SessionInfo> {
  * manually configured projects.
  */
 export async function buildSnapshot(): Promise<SessionsSnapshot> {
-  try {
-    const [registry, manualProjects] = await Promise.all([readRegistry(), listProjects()])
-    const alive = await filterAliveSessions(registry)
-    const enriched = await Promise.all(
-      alive.map(async (s) => {
-        try {
-          return await enrichSession(s)
-        } catch (err) {
-          console.error('enrichSession failed', err)
-          return s
-        }
-      })
-    )
-    const acks = await getAcks()
-    const withAck = enriched.map((s) => ({
-      ...s,
-      acknowledged: s.status === 'idle' && acks[s.sessionId] === s.statusUpdatedAt
-    }))
-    return mergeSessions(manualProjects, withAck)
-  } catch (err) {
-    console.error('buildSnapshot failed', err)
-    return { projects: [] }
-  }
+  const [registry, manualProjects] = await Promise.all([readRegistry(), listProjects()])
+  const alive = await filterAliveSessions(registry)
+  const enriched = await Promise.all(
+    alive.map(async (s) => {
+      try {
+        return await enrichSession(s)
+      } catch (err) {
+        console.error('enrichSession failed', err)
+        return s
+      }
+    })
+  )
+  const acks = await getAcks()
+  const withAck = enriched.map((s) => ({
+    ...s,
+    acknowledged: canAcknowledge(s.status) && acks[s.sessionId] === s.statusUpdatedAt
+  }))
+  return mergeSessions(manualProjects, withAck)
 }

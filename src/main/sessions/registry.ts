@@ -2,6 +2,7 @@ import { promises as fs } from 'fs'
 import os from 'os'
 import { join } from 'path'
 import type { SessionInfo, SessionStatus } from '../../shared/types'
+import { readJsonFile } from '../lib/atomicWrite'
 
 export function sessionsDir(): string {
   return join(os.homedir(), '.claude', 'sessions')
@@ -43,9 +44,12 @@ function parseRegistryFile(raw: unknown): SessionInfo | null {
   return info
 }
 
+let lastGood = new Map<string, SessionInfo>()
+
 /**
- * Enumerate and parse `~/.claude/sessions/*.json`. Malformed or partial
- * files are skipped rather than throwing.
+ * Enumerate and parse `~/.claude/sessions/*.json`. A malformed or partial
+ * file (e.g. read mid-write) falls back to its last successful parse; files
+ * that have never parsed are skipped rather than throwing.
  */
 export async function readRegistry(): Promise<SessionInfo[]> {
   const dir = sessionsDir()
@@ -57,17 +61,20 @@ export async function readRegistry(): Promise<SessionInfo[]> {
   }
 
   const jsonFiles = entries.filter((name) => name.endsWith('.json'))
-  const sessions: SessionInfo[] = []
+  const next = new Map<string, SessionInfo>()
 
   for (const name of jsonFiles) {
+    const path = join(dir, name)
+    let parsed: SessionInfo | null = null
     try {
-      const raw = await fs.readFile(join(dir, name), 'utf-8')
-      const parsed = parseRegistryFile(JSON.parse(raw))
-      if (parsed) sessions.push(parsed)
+      parsed = parseRegistryFile(await readJsonFile<unknown>(path, null))
     } catch {
-      // skip malformed/partial file
+      // partial/unreadable file: fall back to last-good
     }
+    const info = parsed ?? lastGood.get(path)
+    if (info) next.set(path, info)
   }
 
-  return sessions
+  lastGood = next
+  return [...next.values()]
 }

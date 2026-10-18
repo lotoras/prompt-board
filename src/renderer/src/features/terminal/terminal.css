@@ -70,6 +70,13 @@
   border-radius: 50%;
   flex: 0 0 auto;
   margin-right: 6px;
+  position: relative;
+}
+
+.terminal-tabs__status-dot::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
 }
 
 .terminal-tabs__status-dot--busy {

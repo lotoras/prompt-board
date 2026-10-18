@@ -1,6 +1,6 @@
-import { isIdleUnacknowledged, type SessionInfo } from '../../../../shared/types'
+import type { SessionInfo } from '../../../../shared/types'
 import { formatRelativeTime, formatTokens } from '../../lib/format'
-import { api } from '../../lib/api'
+import { useStore } from '../../store'
 import { StatusBadge } from './StatusBadge'
 import './sessions.css'
 
@@ -9,6 +9,7 @@ interface SessionCardProps {
 }
 
 export function SessionCard({ session }: SessionCardProps): React.JSX.Element {
+  const acknowledgeSession = useStore((s) => s.acknowledgeSession)
   const title = session.aiTitle ?? session.name ?? session.sessionId
 
   return (
@@ -17,8 +18,8 @@ export function SessionCard({ session }: SessionCardProps): React.JSX.Element {
         <StatusBadge
           status={session.status}
           waitingFor={session.waitingFor}
-          dismissable={isIdleUnacknowledged(session)}
-          onAcknowledge={() => api.sessions.acknowledge(session.sessionId, session.statusUpdatedAt)}
+          acknowledged={session.acknowledged}
+          onAcknowledge={() => acknowledgeSession(session.sessionId, session.statusUpdatedAt)}
         />
       </div>
       <div className="session-card__title" title={title}>

@@ -31,12 +31,18 @@ export interface SessionInfo {
   acknowledged?: boolean
 }
 
-export function sessionNeedsAttention(s: SessionInfo): boolean {
-  return s.status === 'waiting' || (s.status === 'idle' && !s.acknowledged)
+export function canAcknowledge(status: SessionStatus): boolean {
+  return status === 'waiting' || status === 'idle'
 }
 
-export function isIdleUnacknowledged(s: SessionInfo): boolean {
-  return s.status === 'idle' && !s.acknowledged
+type AckState = Pick<SessionInfo, 'status' | 'acknowledged'>
+
+export function sessionNeedsAttention(s: AckState): boolean {
+  return canAcknowledge(s.status) && !s.acknowledged
+}
+
+export function statusTone(s: AckState): SessionStatus | 'attention' {
+  return sessionNeedsAttention(s) ? 'attention' : s.acknowledged ? 'idle' : s.status
 }
 
 export type ProjectSource = 'manual' | 'auto' | 'both'
