@@ -7,14 +7,25 @@ This is the orchestration rule. When referenced, follow this process end-to-end.
    orchestrator (never edit directly); Opus → planner in the main thread (direct-edit exception);
    anything else → follow this workflow as written.
 2. **Map the task to delegates**: plan/design → `<domain>-architect` (Opus); code changes →
-   `<domain>-coder` (Sonnet via `model: "sonnet"` for plan-driven work, Haiku via `model: "haiku"` for purely mechanical, exactly-specified edits, Opus to escalate); tests → `testing-architect` / `testing-coder`; exploration/broad
-   reads → Explore subagent (`model: "haiku"`) for locate sweeps and verify/check passes (Haiku effort: low for plain greps, medium for broad mapping; fallback `model: "sonnet"` at low effort only if Haiku is unavailable or its sweep comes back thin), `model: "opus"` at low effort
-   for judgment reads (summarise, audit, compare).
+   `<domain>-coder` (Sonnet via `model: "sonnet"` for plan-driven work; Haiku via
+   `model: "haiku"` for purely mechanical, exactly-specified edits; Opus on escalation);
+   planned-work tests → `testing-coder`
+   (Sonnet; Codex via `codex:codex-rescue` only when the user says "use codex"), test infrastructure →
+   `testing-architect` / `testing-coder`; locate sweeps →
+   Explore subagent (`model: "haiku"`, effort low for plain greps, medium for broad mapping;
+   fallback `model: "sonnet"` at low effort only if Haiku is unavailable or its sweep comes back
+   thin); verify/check passes → Haiku (effort low); judgment reads (summarise, audit, compare) → Opus at low
+   effort (`model: "opus"`).
 3. **Write the brief** per the Brief contract (objective, exact paths, gathered findings,
    constraints, output format + word cap); reference plan files in `.claude/plans/` instead of
    pasting plan text.
 4. **Dispatch** (in parallel when layers are independent), then **verify**: review the compact
-   return, run `npm test`, confirm the diff is minimal before reporting done.
+   return, run `npm test`, confirm the diff is minimal before reporting done. If the task
+   fans out across many files/layers/concerns, script it as a **workflow** instead of hand-chaining
+   dispatches — see "Dynamic workflows (Workflow tool)". Planned work follows Phases 3–5
+   (`testing-coder` tests → Sonnet code → verify; with "use codex": Codex tests → Sonnet code →
+   verify). Simplify and Review are not pipeline phases — they run only when the user picks them in
+   the threebrain Stop hook (see "After verify — Stop hook").
 
 ## Phase 1: Understand
 
@@ -42,15 +53,32 @@ scatter-then-extract "double take" means the placement decision was skipped.
 
 4. **State the problem and solution in plain language** before writing code — what's wrong, what
    changes, which files. Note any new/changed IPC channel: it is a `shared` + `electron-main` change
-   that the renderer then consumes.
+   that the renderer then consumes. For planned work (multi-file feature/bugfix) write it to
+   `.claude/plans/<slug>.md` **with acceptance criteria** — the tests in Phase 3 are derived from it.
 5. **Check for existing tests** covering the affected behavior. If none exist, suggest the right
    test type to the user and wait for their answer before proceeding.
 
-## Phase 3: Execute with Sub-Agents
+## Phase 3: Tests — planned work only
+
+Micro-edits skip Phases 2–3. For planned work, the `testing-coder` (Sonnet) writes the **failing
+tests first** from the plan file — failing tests only, no non-test source edits, return the test
+files + test command + red output. Confirm the tests fail for the right reason before moving on.
+Test infrastructure (fixtures, factories, helpers) stays with `testing-architect` / the testing
+coders.
+
+**Codex pipeline (opt-in)** — only when the user explicitly says "use codex" ("with codex", "via
+codex", "run it through codex"; bare mentions of Codex as subject matter are NOT triggers), **Codex
+writes the failing tests first** (spec-first, decorrelated from the implementer): dispatch the
+`codex:codex-rescue` agent (`--model gpt-6.1-sol --effort medium`; `--effort high` for auth/billing/migrations/concurrency/money-date math/complex parsing) with the same brief. Codex may
+read the whole project and run the test suite. If Codex is unavailable or out of quota, fall back to
+the `testing-coder`.
+
+## Phase 4: Implement with Sub-Agents
 
 **Every code edit MUST go through a named sub-agent — no direct `Edit` / `Write` from the main
-thread, even for one-line changes.** *(Opus sessions: see the direct-edit exception — never on Fable.)* The main thread plans and verifies
-only. Dispatch by layer:
+thread, even for one-line changes.** *(Opus sessions: see the direct-edit exception — never on Fable.)*
+Writing/editing its own plan file (`*.md` under `.claude/plans/`) is exempt from this rule on every
+model, Fable included. The main thread plans and verifies only. Dispatch by layer:
 
 - **Main-process / IPC / filesystem / OS / kanban store / pty (Phase 2)** →
   `electron-main-architect` (plan) then `electron-main-coder` (build).
@@ -66,18 +94,40 @@ message, multiple `Agent` tool calls), each with only the context relevant to it
 channel is a classic cross-layer change: `electron-main-coder` (contract + handler + preload) and
 `react-coder` (consumer) can run in parallel once the contract in `src/shared/types.ts` is agreed.
 
+When Phase 3 produced tests, the coder's goal is to make them pass (green). A coder never edits
+those tests — if one looks wrong, it flags it in its return and the orchestrator decides.
+
 ### What the main thread may do directly
 - Read files (`Read`, `Grep`, `Glob`) within the reading discipline below
 - Run read-only shell commands (git status/log/diff, tests, linters, `npm run typecheck`)
 - Write plan files in plan mode and memory files
 - Dispatch sub-agents
 
-## Phase 4: Verify
+## Phase 5: Verify
 
 - **Review what the sub-agents produced** — minimal, matches the plan, follows existing patterns,
   nothing unrelated touched. Confirm the renderer never imported Node/`fs` and all main access went
   through `window.api`.
 - **Run the checks** for the affected area: `npm test`, and `npm run typecheck` (tsc --noEmit).
+- After **2 failed fix rounds**, stop retrying: escalate to an Opus coder, or hand off to
+  `/codex:rescue` when the Codex pipeline is on.
+
+## After verify — Stop hook (not a pipeline phase)
+
+The pipeline ends at Phase 5. Neither Simplify nor the Codex review runs automatically — in the
+default pipeline or the "use codex" pipeline. The global threebrain Stop hook offers them after a
+code change (Simplify · Review · Review + Simplify · No) and they run only on the user's choice:
+- **Simplify** — `/simplify` on Opus (needs whole-repo context), then re-run the tests.
+- **Review** — `node "<plugin>/scripts/codex-companion.mjs" review --scope working-tree` through a
+  Haiku relay (`adversarial-review` if `src/auth/**`, `**/migrations/**`, or `**/billing/**` were
+  touched); findings go to a Sonnet coder under `superpowers:receiving-code-review` discipline
+  (verify each finding, don't blindly apply), then re-run the tests. Fallback if Codex is
+  unavailable: `superpowers:requesting-code-review`.
+- **Review + Simplify** — Review → Sonnet fixes findings → Opus `/simplify` last.
+
+Unchanged: explicit review phrases ("review this", "tear this apart", "rescue") and the forced
+adversarial review on sensitive paths still fire on their own. The Codex plugin's stop-review gate
+stays disabled (900s timeout). Micro-edits skip straight to the Stop-hook ask.
 
 ## Session-model discipline
 
@@ -87,7 +137,7 @@ determines what the main thread may do directly.
 ### Fable 5 session (default — strict orchestrator)
 
 Fable 5 is a pure orchestrator. It **never** calls `Edit` or `Write` directly — not even
-one-liners. Every code change goes through a named coder (Sonnet for plan-driven work, Haiku for purely mechanical, exactly-specified edits, Opus to escalate). Planning goes through an Opus
+one-liners, except its own plan file (`*.md` under `.claude/plans/`). Every code change goes through a named coder (Sonnet for plan-driven work, Haiku for purely mechanical, exactly-specified edits, Opus to escalate). Planning goes through an Opus
 architect. Broad exploration and verify/check passes go to a Haiku sub-agent (fallback `model: "sonnet"` at low effort only if Haiku is unavailable or its sweep comes back thin; Haiku effort: low for plain greps, medium for broad mapping).
 
 **Suggested flow per task:**
@@ -120,7 +170,8 @@ coders (Sonnet for plan-driven work, Haiku for purely mechanical edits, Opus to 
 **Direct-edit exception:** any single-file change, or a small sequential change whose context the
 main thread already holds, may be done directly from the Opus main thread. Delegate to a named coder
 when the work fans out across files/layers or bulky reads would flood the main context. Never apply
-this exception on Fable 5.
+this exception on Fable 5. Writing or editing its own plan file (`*.md` under `.claude/plans/`) is
+always allowed directly, Fable 5 included.
 
 The domain architects (`electron-main-architect`, `react-architect`; Opus by default) are
 Fable-upgradeable in non-Fable sessions only — when the task explicitly says to use Fable, dispatch
@@ -165,6 +216,78 @@ when stale (>1 week).
 - Forwarding raw tool output instead of the distilled finding.
 - Two agents exploring the same area.
 - Spawning a fresh agent when the previous one can continue.
+
+## Dynamic workflows (Workflow tool)
+
+**Standing authorization:** multi-agent orchestration via the **Workflow** tool is authorized as a
+standing default in this project — treat this rule as my explicit opt-in. Don't ask "should I run a
+workflow?" and don't wait for the `ultracode` keyword; script one whenever the task has the shape
+below. *(Source of truth for this section: ai-brain `skills/setup-agents/templates/workflow.md` —
+edit it there and copy verbatim; keep it project-agnostic.)*
+
+**Default to a workflow.** Once a task fans out, a script-driven run (`agent()` / `pipeline()` /
+`parallel()`) is the orchestration, not a hand-chained sequence of `Agent` dispatches:
+- multi-file or multi-layer feature work (plan → implement per layer → verify)
+- reviews, audits, security/perf sweeps (fan out, then judge)
+- migrations and mechanical rewrites across many files
+- research sweeps over an unfamiliar area, verify-findings passes over a list of claims
+
+**Stay with a single `Agent` dispatch** for one-file/one-step changes, a single targeted question, a
+lookup, or conversational work. Nothing trivial gets a workflow — but when in doubt, workflow.
+
+### Model mapping inside `agent()` — mandatory
+
+`agent()` inherits the **main-loop model** when nothing is set; in a Fable 5 session that silently
+runs every stage on Fable. Never allow it: **every `agent()` call carries an explicit `agentType`
+or `model`.**
+
+| Stage | Set on `agent()` | Effective model |
+|---|---|---|
+| Exploration, mapping, greps (locate) | `model: 'haiku'`, `effort: 'low'` plain greps / `'medium'` broad mapping (fallback `model: 'sonnet', effort: 'low'` only if Haiku is unavailable or its sweep comes back thin) | Haiku 5.5 |
+| Verify / check passes | `model: 'haiku'`, `effort: 'low'` | Haiku 5.5 |
+| Judgment reads (summarise, audit, compare) | `model: 'opus', effort: 'low'` | Opus |
+| Well-specified / plan-driven code edits, test writing | `agentType:` the named coder (`electron-main-coder` / `react-coder` / `testing-coder`), `model: 'sonnet'`, `effort: 'medium'` | Sonnet 5.5 |
+| Purely mechanical, exactly-specified edits (verbatim find/replace, ID swaps, template copy/sync) | `agentType:` the named coder, `model: 'haiku'`, `effort: 'medium'` | Haiku 5.5 |
+| Escalated implementation (cross-cutting, security, no plan, blocked) | `agentType:` the named coder, `effort: 'medium'` | Opus (frontmatter) |
+| Planning, design, judging, adversarial review | `agentType:` the named architect / test planner (`electron-main-architect` / `react-architect` / `testing-architect`), `effort: 'high'` (`'xhigh'` hard designs) | Opus (frontmatter) |
+| Anything else | pick one of the rows above — never omit both | — |
+
+**Escalation:** a Sonnet coder that is stuck or finds the plan ambiguous returns it under `Open
+questions` instead of guessing; the orchestrator asks the architect (`SendMessage`) or
+re-dispatches the coder without the `model` override (Opus). Escalate up front for cross-cutting,
+security, auth/billing or migration work, no written plan, or a single dependent chain.
+
+`agentType` beats the inherited model and also pulls in that agent's tool restrictions and output
+contract, so naming the project's own agents is the safest form. Fable stays in the main loop: it
+writes the script, reviews returns, talks to the user. No workflow stage runs on Fable.
+
+### Contracts still apply
+
+- Each `agent()` prompt is a **self-contained brief** per the Brief contract above — a stage cannot
+  see the script, the session, or its siblings.
+- Use `schema` on any stage whose output a later stage consumes; free text only for the final
+  stage or a human-facing summary.
+- Plans go to `.claude/plans/<slug>.md`, large findings to `.claude/findings/<slug>.md`; pass
+  **paths** between stages, never pasted bodies.
+- The Return contract (`Result / Files changed / Deviations / Open questions`) and its word caps
+  hold inside workflows exactly as for `Agent`.
+
+### Size
+
+Respect the session's workflow size guideline — default **medium (aim for < 15 agents)**. Prefer
+depth (a few well-briefed stages) over width; go bigger only when the user asks for scale.
+
+### Patterns
+
+- **Pipeline (default for features):** explore (haiku) → plan (architect, writes
+  `.claude/plans/<slug>.md`) → implement (named coders, `parallel` per layer, given the plan path)
+  → verify (haiku + `npm test` / `npm run typecheck`).
+- **Adversarial verify (reviews/audits):** `parallel` finders (haiku, one concern each, `schema`'d
+  findings) → dedupe → **judge** (architect) that discards unreproducible findings → report file.
+- **Parallel explore sweep (unfamiliar area):** `parallel` haiku explorers, one per subsystem, each
+  returning a `schema`'d summary plus a findings-file path → one synthesis stage.
+
+Long runs go **background**; report the run and collect results instead of blocking.
 
 ## Rules
 
