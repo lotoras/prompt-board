@@ -3,6 +3,8 @@ import { api } from './api'
 import { useStore } from '../store'
 import { buildPersistedSnapshot } from '../features/terminal/persistedSnapshot'
 import { reloadTerminal } from '../features/terminal/reloadTerminal'
+import { createAttentionChime } from '../features/sessions/attentionChime'
+import { playCoinBlip } from './retroSound'
 
 // Restore runs exactly once per app launch, even if the bootstrap effect
 // re-mounts (React StrictMode double-invokes effects in dev).
@@ -46,8 +48,17 @@ export function useIpcBootstrap(): void {
     api.window.getInset().then(applyInset)
     const unsubInset = api.window.onInsetChanged(applyInset)
 
+    const onSnapshot = createAttentionChime({
+      play: playCoinBlip,
+      isEnabled: () => useStore.getState().soundEnabled
+    })
+    const unsubChime = useStore.subscribe((s, p) => {
+      if (s.snapshot !== p.snapshot) onSnapshot(p.snapshot, s.snapshot)
+    })
+
     if (!api.caps.pty) {
       return () => {
+        unsubChime()
         unsubscribe()
         unsubProjects()
         unsubBoards()
@@ -129,6 +140,7 @@ export function useIpcBootstrap(): void {
     })
 
     return () => {
+      unsubChime()
       unsubscribe()
       unsubProjects()
       unsubBoards()

@@ -23,9 +23,28 @@ export interface UiSlice {
   setSyncModalOpen: (open: boolean) => void
   globalBoardMode: 'board' | 'aktuelles'
   setGlobalBoardMode: (mode: 'board' | 'aktuelles') => void
+  soundEnabled: boolean
+  setSoundEnabled: (on: boolean) => void
 }
 
 const STORAGE_KEY = 'prompt-board:ui:view'
+const SOUND_KEY = 'prompt-board:ui:sound'
+
+function loadSoundEnabled(): boolean {
+  try {
+    return localStorage.getItem(SOUND_KEY) !== 'false'
+  } catch {
+    return true
+  }
+}
+
+function persistSoundEnabled(on: boolean): void {
+  try {
+    localStorage.setItem(SOUND_KEY, String(on))
+  } catch {
+    // ignore storage failures (e.g. private mode)
+  }
+}
 
 function loadInitialView(): UiView {
   try {
@@ -68,5 +87,10 @@ export const createUiSlice: StateCreator<StoreState, [], [], UiSlice> = (set, ge
   syncModalOpen: false,
   setSyncModalOpen: (open) => set({ syncModalOpen: open }),
   globalBoardMode: 'board',
-  setGlobalBoardMode: (mode) => set({ globalBoardMode: mode })
+  setGlobalBoardMode: (mode) => set({ globalBoardMode: mode }),
+  soundEnabled: loadSoundEnabled(),
+  setSoundEnabled: (on) => {
+    persistSoundEnabled(on)
+    set({ soundEnabled: on })
+  }
 })

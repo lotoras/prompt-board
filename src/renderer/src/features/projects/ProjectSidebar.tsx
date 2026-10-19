@@ -1,6 +1,7 @@
 import { useStore } from '../../store'
 import { ProjectRow } from './ProjectRow'
 import { syncDotColor } from '../sync/syncStatus'
+import { playCoinBlip } from '../../lib/retroSound'
 import '../sync/sync.css'
 import './projects.css'
 
@@ -11,6 +12,8 @@ export function ProjectSidebar(): React.JSX.Element {
   const setProjectModal = useStore((s) => s.setProjectModal)
   const syncStatus = useStore((s) => s.syncStatus)
   const setSyncModalOpen = useStore((s) => s.setSyncModalOpen)
+  const soundEnabled = useStore((s) => s.soundEnabled)
+  const setSoundEnabled = useStore((s) => s.setSoundEnabled)
 
   const isGlobalActive = view.kind === 'global-board'
 
@@ -49,6 +52,20 @@ export function ProjectSidebar(): React.JSX.Element {
         onClick={() => setProjectModal({ mode: 'create' })}
       >
         + New project
+      </button>
+
+      <button
+        type="button"
+        className="project-sidebar__sound"
+        aria-pressed={soundEnabled}
+        title={soundEnabled ? 'Mute attention chime' : 'Unmute attention chime'}
+        onClick={() => {
+          const next = !soundEnabled
+          setSoundEnabled(next)
+          if (next) playCoinBlip()
+        }}
+      >
+        {soundEnabled ? '🔊 Sound' : '🔇 Muted'}
       </button>
 
       <div className="project-sidebar__footer" onClick={() => setSyncModalOpen(true)}>
