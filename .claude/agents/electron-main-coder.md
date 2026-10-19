@@ -30,7 +30,7 @@ deviations instead of silently changing course.
   expose a narrow typed surface, not raw `ipcRenderer`.
 
 ## Report format
-`Files changed (path:lines) / What & why (≤3 bullets) / Deviations / Verification result`
+`Result (≤3 bullets, incl. the verification output) / Files changed (path:lines) / Deviations / Open questions`
 ≤200 words total. Never paste diffs back.
 
 ## Rules

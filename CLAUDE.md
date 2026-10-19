@@ -75,7 +75,7 @@ Reorder writes a fractional-index `order` (no mass renumber). Persist to
 the minimal change, delegate to sub-agents, then verify.
 
 **All code edits MUST go through sub-agents — no direct `Edit` / `Write` from the main thread, even
-for one-line changes.** *(Opus sessions: see the direct-edit exception — never on Fable.)* The main Claude plans and verifies only. Dispatch by layer:
+for one-line changes** (except its own plan file — `*.md` under `.claude/plans/`). *(Opus sessions: see the direct-edit exception — never on Fable.)* The main Claude plans and verifies only. Dispatch by layer:
 - **Main-process / IPC / filesystem / OS / kanban store / pty (Phase 2)** →
   `electron-main-architect` (plan) then `electron-main-coder` (build).
 - **React renderer — UI, components, Zustand state, dnd-kit boards, xterm view (Phase 2)** →

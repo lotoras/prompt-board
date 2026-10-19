@@ -137,8 +137,14 @@ determines what the main thread may do directly.
 ### Fable 5 session (default — strict orchestrator)
 
 Fable 5 is a pure orchestrator. It **never** calls `Edit` or `Write` directly — not even
-one-liners, except its own plan file (`*.md` under `.claude/plans/`). Every code change goes through a named coder (Sonnet for plan-driven work, Haiku for purely mechanical, exactly-specified edits, Opus to escalate). Planning goes through an Opus
-architect. Broad exploration and verify/check passes go to a Haiku sub-agent (fallback `model: "sonnet"` at low effort only if Haiku is unavailable or its sweep comes back thin; Haiku effort: low for plain greps, medium for broad mapping).
+one-liners, except its own plan file (`*.md` under `.claude/plans/`). Every code change goes
+through a named coder (plan-driven/well-specified coding and test writing → Sonnet; purely
+mechanical, exactly-specified edits (verbatim find/replace, ID swaps, template copy/sync) → Haiku,
+escalating to Sonnet on failed verification; Opus for escalation). Planning goes through an Opus
+architect. Broad locate exploration goes to a Haiku sub-agent (fallback `model: "sonnet"` at low
+effort only if Haiku is unavailable or its sweep comes back thin; Haiku effort: low for plain greps,
+medium for broad mapping); verify/check passes go to Haiku (effort low); judgment reads go to Opus
+at low effort.
 
 **Suggested flow per task:**
 1. Fable 5: receive task, think about scope.
@@ -153,6 +159,10 @@ architect. Broad exploration and verify/check passes go to a Haiku sub-agent (fa
 - Large-file scans where only a pattern or a few snippets are needed
 - Git archaeology across multiple files
 - Cross-cutting greps that would flood the main context
+- Verify/check passes (`node --check`, diffs, dry-run checks, pass/fail) — effort low
+
+Judgment reads (summarise behaviour, audit, compare, explain) go to Opus at low effort
+(`model: "opus"`), not Haiku.
 
 #### Read directly from the main thread (Fable 5 only)
 - Verifying a sub-agent's summary on any load-bearing claim
