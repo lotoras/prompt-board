@@ -71,54 +71,16 @@ Reorder writes a fractional-index `order` (no mass renumber). Persist to
 
 ## Workflow
 
-**For any change request, follow `.claude/rules/workflow.md`** — understand the code first, plan
-the minimal change, delegate to sub-agents, then verify.
+**For any change request, follow `.claude/rules/workflow.md`.** Work in one main loop — read, plan
+(`.claude/plans/<slug>.md` for multi-step work), edit, run the checks and verify yourself. Spawn
+only for a context reason: bulky reads (Haiku `Explore`), independent parallel work (a Workflow;
+every `agent()` sets `agentType` or `model`), or black-box verification (`testing-coder` red tests
+from the plan for planned multi-file work; Codex only when the user says "use codex").
 
-**All code edits MUST go through sub-agents — no direct `Edit` / `Write` from the main thread, even
-for one-line changes** (except its own plan file — `*.md` under `.claude/plans/`). *(Opus sessions: see the direct-edit exception — never on Fable.)* The main Claude plans and verifies only. Dispatch by layer:
-- **Main-process / IPC / filesystem / OS / kanban store / pty (Phase 2)** →
-  `electron-main-architect` (plan) then `electron-main-coder` (build).
-- **React renderer — UI, components, Zustand state, dnd-kit boards, xterm view (Phase 2)** →
-  `react-architect` (plan) then `react-coder` (build).
-- **Tests (Vitest unit + React Testing Library component)** → `testing-architect` (plan) then
-  `testing-coder` (write).
-- **Broad exploration / usage mapping / research** → `Explore` sub-agent (`model: "haiku"`) for
-  locate sweeps (Haiku effort: low for plain greps, medium for broad mapping) and verify/check passes (effort low); judgment reads (summarise, audit, compare) → `model: "opus"` at low effort.
+Agents in `.claude/agents/`:
+- `electron-main-architect` / `electron-main-coder` — main process, IPC, filesystem/OS, kanban store, preload bridge, pty (Phase 2).
+- `react-architect` / `react-coder` — React renderer: components, Zustand state, dnd-kit boards, xterm view (Phase 2).
+- `testing-architect` / `testing-coder` — Vitest unit + React Testing Library tests.
 
-**Model policy:** domain architects run on **Opus** by default and are **Fable-upgradeable** in
-non-Fable sessions only — when the task explicitly says to use Fable (e.g. via cc-enhance "use
-fable") and the session is NOT on Fable 5, dispatch them with `model: "fable"` (dispatch-time
-override beats the frontmatter default); in Fable 5 sessions architects always stay Opus — the
-orchestrator's plan review is the Fable pass, never double-pay. Architect effort ladder: `high` by default, `xhigh` for hard/cross-cutting designs, then Fable via the explicit upgrade. Test planning (`testing-architect`) is
-always **Opus** and, with `testing-coder`, owns test infrastructure and, via `testing-coder`, writes the first failing tests for planned work (only when the user says "use codex" does **Codex write the first failing tests** via `codex:codex-rescue`); coders keep `model: opus` in frontmatter but plan-driven / well-specified coding and test
-writing are dispatched with `model: "sonnet"` (**Sonnet**, effort `medium`), and purely mechanical, exactly-specified edits (verbatim find/replace, ID swaps, template copy/sync) with `model: "haiku"` (**Haiku**, escalating to Sonnet on failed verification) — agent frontmatter can't set effort; the effort values apply to workflow `agent()` stages — plain `Agent` dispatches run at the session effort); escalate to **Opus** for
-cross-cutting, security or migration work, no written plan, a single dependent chain, or a Sonnet coder that returned blocked / failed verification (a stuck Sonnet coder returns `Open
-questions` instead of guessing — ask the architect or re-dispatch on Opus); locate exploration is
-**Haiku** (`Explore` / `general-purpose` with `model: "haiku"`; fallback `model: "sonnet"` at low
-effort only if Haiku is unavailable or its sweep comes back thin; Haiku effort: low for plain greps, medium for broad mapping), verify/check passes run on **Haiku** (effort low), judgment reads run **Opus at low effort**. Route each role to the cheapest tier that holds quality: sweep effort before switching model; cheaper workers pay off for well-specified or parallel work, not for a single dependent chain. **Fable 5 sessions** are strict orchestrators — no direct
-`Edit`/`Write`, ever, except its own plan file (`*.md` under `.claude/plans/`). **Opus sessions** plan in the main thread; any single-file change, or a small
-sequential change whose context the main thread already holds, may be done directly — only on
-Opus, never Fable; delegate to an Opus coder when work fans out or bulky reads would flood context. Simplify and Review are never automatic
-pipeline phases — the global threebrain Stop hook offers them after a code change and its routing lives there, not here.
-
-Multi-layer changes dispatch multiple coders **in parallel** (single message, multiple `Agent` tool
-calls). See `.claude/rules/workflow.md` → "Session-model discipline" for the full reading rule.
-Briefs are self-contained and returns compact — see `.claude/rules/workflow.md` → Token-efficient
-handoffs.
-
-**Dynamic workflows:** multi-agent orchestration via the **Workflow** tool is authorized as a
-standing default here — treat this as my explicit opt-in; never ask first. Prompts enhanced via
-cc-enhance end with the `use ultracode` keyword (except really small tasks) — that keyword alone arms the Workflow tool
-even in sessions without this standing opt-in. Use a workflow for anything with fan-out shape
-(multi-file feature, review/audit, migration, research sweep, verify pass); a single `Agent`
-dispatch stays right for one-step work. Every `agent()` stage sets `agentType` or `model`
-explicitly — locate exploration → `model: "haiku"`, judgment reads → `model: "opus"` at low
-effort, verify/check passes → `model: "haiku"` (effort low), plan-driven / well-specified implementation → the named coder with `model: "sonnet"`, purely mechanical edits → the named coder with `model: "haiku"`, escalated
-implementation → the named coder (Opus), planning/judging → the architect (Opus, `high`/`xhigh`); nothing inherits Fable. Full rules:
-`.claude/rules/workflow.md` → "Dynamic workflows".
-
-Plans and large findings travel as files (`.claude/plans/`, `.claude/findings/`), not inline text.
-Per task: detect session model → map delegates → brief per contract → dispatch → verify. Full
-procedure: `.claude/rules/workflow.md` → How to proceed. Planned work: `testing-coder` tests → Sonnet
-code → verify (Codex writes the tests only when the user says "use codex"); Simplify and Review run only
-when the user picks them in the threebrain Stop hook.
+The architects are on-demand (a separate design pass when asked); the coders are for parallel
+fan-out, not sequential work. Verify with `npm test` and `npm run typecheck`.

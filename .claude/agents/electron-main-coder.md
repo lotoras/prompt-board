@@ -1,6 +1,6 @@
 ---
 name: electron-main-coder
-description: "Use this agent for implementing Electron main-process code in prompt-board — IPC handlers, session registry/liveness/transcript/watcher modules, the kanban store, the preload bridge, and the Phase-2 node-pty manager. Executes a plan (from electron-main-architect or the user). Enforces main-only filesystem/OS access, a typed IPC contract in src/shared/types.ts, and no Node in the renderer. Sonnet/Haiku-dispatchable: plan-driven work with model \"sonnet\", purely mechanical edits with model \"haiku\"; frontmatter default stays Opus for escalation."
+description: "Use this agent for implementing Electron main-process code in prompt-board — IPC handlers, session registry/liveness/transcript/watcher modules, the kanban store, the preload bridge, and the Phase-2 node-pty manager. Use for parallel fan-out — independent files or layers side by side in a Workflow, or a many-file mechanical edit; sequential work stays in the main loop. Executes a plan file or an exact brief. Dispatch with model \"sonnet\" (well-specified) or \"haiku\" (verbatim edits); frontmatter default Opus. Enforces main-only filesystem/OS access, a typed IPC contract in src/shared/types.ts, and no Node in the renderer."
 tools: Bash, Glob, Grep, Read, Edit, Write
 model: opus
 color: cyan
