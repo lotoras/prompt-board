@@ -130,4 +130,15 @@ describe('reloadTerminal', () => {
       freshFallback: true
     })
   })
+
+  describe.each(['resume', 'fresh'] as const)('account preservation (%s)', (mode) => {
+    it('spawns with account 2 and adds the new terminal with account 2', async () => {
+      const terminal = makeTerminal({ account: 2 })
+
+      await reloadTerminal(terminal, mode, { addTerminal, closeTerminal })
+
+      expect(spawn).toHaveBeenCalledWith(expect.objectContaining({ account: 2 }))
+      expect(addTerminal).toHaveBeenCalledWith(expect.objectContaining({ account: 2 }))
+    })
+  })
 })

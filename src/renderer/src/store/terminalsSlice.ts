@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand'
 import type { StoreState } from './index'
+import type { ClaudeAccountId } from '../../../shared/types'
 
 export type TerminalStatus = 'running' | 'exited'
 
@@ -9,6 +10,7 @@ export interface TerminalMeta {
   title: string
   status: TerminalStatus
   sessionId?: string
+  account?: ClaudeAccountId
 }
 
 export interface TerminalsSlice {

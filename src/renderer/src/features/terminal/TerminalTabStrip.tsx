@@ -19,7 +19,7 @@ interface TerminalTabStripProps {
   >
   onSelect: (ptyId: string) => void
   onClose: (ptyId: string) => void
-  onNew: () => void
+  onNew: (rect: DOMRect) => void
   onReload: (terminal: TerminalMeta, rect: DOMRect) => void
 }
 
@@ -93,7 +93,12 @@ export function TerminalTabStrip({
                 title="no linked session yet"
               />
             )}
-            <span className="terminal-tabs__title">{terminal.title || shortId(terminal.ptyId)}</span>
+            <span className="terminal-tabs__account" title={`Claude ${terminal.account ?? 1}`}>
+              {terminal.account ?? 1}
+            </span>
+            <span className="terminal-tabs__title">
+              {terminal.title || shortId(terminal.ptyId)}
+            </span>
             <span
               className="terminal-tabs__reload"
               role="button"
@@ -116,7 +121,11 @@ export function TerminalTabStrip({
           </button>
         )
       })}
-      <button type="button" className="terminal-tabs__new" onClick={onNew}>
+      <button
+        type="button"
+        className="terminal-tabs__new"
+        onClick={(e) => onNew(e.currentTarget.getBoundingClientRect())}
+      >
         + New terminal
       </button>
     </div>

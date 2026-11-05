@@ -105,15 +105,16 @@ export function useIpcBootstrap(): void {
         .then(async () => {
           const { terminals: saved, activeSessionByProject } = await api.pty.loadPersisted()
           const newPtyIdBySessionId: Record<string, string> = {}
-          for (const { projectKey, sessionId, title } of saved) {
+          for (const { projectKey, sessionId, title, account } of saved) {
             try {
-              const { ptyId, resumed } = await api.pty.spawn({ projectKey, resumeSessionId: sessionId })
+              const { ptyId, resumed } = await api.pty.spawn({ projectKey, resumeSessionId: sessionId, account })
               useStore.getState().addTerminal({
                 ptyId,
                 projectKey,
                 title,
                 status: 'running',
-                sessionId: resumed ? sessionId : undefined
+                sessionId: resumed ? sessionId : undefined,
+                account: account ?? 1
               })
               newPtyIdBySessionId[sessionId] = ptyId
             } catch {

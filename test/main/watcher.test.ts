@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import os from 'os'
+import { join } from 'path'
 import type { SessionsSnapshot } from '../../src/shared/types'
 
 const { buildSnapshotMock } = vi.hoisted(() => ({ buildSnapshotMock: vi.fn() }))
@@ -66,5 +68,38 @@ describe('refreshSnapshotNow', () => {
     await refreshSnapshotNow(getWindow)
 
     expect(send).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('startSessionsWatcher', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    vi.useFakeTimers()
+    buildSnapshotMock.mockReset()
+    buildSnapshotMock.mockResolvedValue(snap('x'))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it("watches both accounts' sessions dirs and the projects dir", async () => {
+    const home = join(os.tmpdir(), 'fake-home')
+    vi.spyOn(os, 'homedir').mockReturnValue(home)
+    const { startSessionsWatcher, stopSessionsWatcher } = await import('../../src/main/sessions/watcher')
+    startSessionsWatcher((() => null) as never)
+
+    const { default: chok } = await import('chokidar')
+    const calls = vi.mocked(chok.watch).mock.calls
+    const paths = calls[calls.length - 1][0] as string[]
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        join(home, '.claude', 'sessions'),
+        join(home, '.claude-2', 'sessions'),
+        join(home, '.claude', 'projects')
+      ])
+    )
+    stopSessionsWatcher()
   })
 })

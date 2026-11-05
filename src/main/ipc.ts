@@ -95,6 +95,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     } catch (err) {
       restoreLog('spawn:error', {
         projectKey: input.projectKey,
+        account: input.account,
         resumeSessionId: input.resumeSessionId,
         error: String(err)
       })

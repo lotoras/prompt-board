@@ -74,7 +74,7 @@ function scheduleDebounced(getWindow: () => BrowserWindow | null): void {
  * one sent. Backed by a 5s safety poll to cover missed FS events.
  */
 export function startSessionsWatcher(getWindow: () => BrowserWindow | null): void {
-  watcher = chokidar.watch([sessionsDir(), projectsDir()], {
+  watcher = chokidar.watch([sessionsDir(1), sessionsDir(2), projectsDir()], {
     ignoreInitial: true,
     depth: 2
   })

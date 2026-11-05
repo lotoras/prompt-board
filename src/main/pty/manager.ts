@@ -3,6 +3,7 @@ import type { BrowserWindow } from 'electron'
 import type { IPty } from 'node-pty'
 import { IPC_CHANNELS } from '../../shared/types'
 import type { PtySpawnInput, PtySpawnResult } from '../../shared/types'
+import { accountLauncher } from '../accounts'
 import { assertProjectDirectory, listProjects } from '../projects/store'
 import {
   clearPendingSpawn,
@@ -83,14 +84,18 @@ export async function spawnPty(
       : undefined
   const downgraded = Boolean(input.resumeSessionId) && !resumeSessionId
   const notice = downgraded || input.freshFallback ? NOTICE : ''
-  const command = resumeSessionId ? `clauded --resume ${resumeSessionId}` : `${notice}clauded`
+  const account = input.account ?? 1
+  const launcher = accountLauncher(account)
+  const command = resumeSessionId ? `${launcher} --resume ${resumeSessionId}` : `${notice}${launcher}`
+  const env = { ...process.env, CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1' } as Record<string, string>
+  if (account === 1) delete env.CLAUDE_CONFIG_DIR
   const args = ['-NoLogo', '-NoProfile', '-Command', command]
   const ptyProcess = pty.spawn('powershell.exe', args, {
     cwd: project.basePath,
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
     useConpty: true,
-    env: { ...process.env, CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1' } as Record<string, string>
+    env
   })
 
   sessions.set(ptyId, { pty: ptyProcess, projectKey: input.projectKey })
@@ -100,11 +105,12 @@ export async function spawnPty(
   if (resumeSessionId) {
     preclaimSession(resumeSessionId)
   }
-  registerPendingSpawn(ptyId, input.projectKey, spawnedAt, resumeSessionId)
+  registerPendingSpawn(ptyId, input.projectKey, spawnedAt, resumeSessionId, account)
   restoreLog('spawn', {
     ptyId,
     pid: ptyProcess.pid,
     projectKey: input.projectKey,
+    account,
     requestedResume: input.resumeSessionId,
     resumed: Boolean(resumeSessionId),
     downgraded,

@@ -12,6 +12,13 @@
 // Sessions
 // ---------------------------------------------------------------------------
 
+export type ClaudeAccountId = 1 | 2
+
+export const CLAUDE_ACCOUNTS: ReadonlyArray<{ id: ClaudeAccountId; label: string }> = [
+  { id: 1, label: 'Claude 1' },
+  { id: 2, label: 'Claude 2' }
+]
+
 export type SessionStatus = 'busy' | 'idle' | 'waiting'
 
 export interface SessionInfo {
@@ -29,6 +36,7 @@ export interface SessionInfo {
   model?: string
   totalTokens?: number
   acknowledged?: boolean
+  account?: ClaudeAccountId
 }
 
 export function canAcknowledge(status: SessionStatus): boolean {
@@ -186,6 +194,7 @@ export interface PtySpawnInput {
   initialQuery?: string
   resumeSessionId?: string
   freshFallback?: boolean // caller knows the previous session is unresumable; print the notice
+  account?: ClaudeAccountId // default 1
 }
 
 export interface PtySpawnResult {
@@ -214,6 +223,7 @@ export interface PersistedTerminal {
   projectKey: string
   sessionId: string
   title: string
+  account?: ClaudeAccountId
 }
 
 export interface PersistedTerminalsState {

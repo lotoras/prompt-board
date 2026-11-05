@@ -21,7 +21,8 @@ export function buildPersistedSnapshot(
     terminals: survivors.map((t) => ({
       projectKey: t.projectKey,
       sessionId: t.sessionId,
-      title: t.title
+      title: t.title,
+      account: t.account ?? 1
     })),
     activeSessionByProject
   }

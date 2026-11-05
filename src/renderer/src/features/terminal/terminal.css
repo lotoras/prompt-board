@@ -215,3 +215,14 @@
   padding: 6px 8px;
   font-size: 12px;
 }
+
+.terminal-tabs__account {
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  background: var(--color-panel);
+  flex: 0 0 auto;
+}

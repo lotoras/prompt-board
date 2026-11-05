@@ -303,6 +303,58 @@ describe('pty/manager', () => {
     })
   })
 
+  describe('account selection', () => {
+    const lastCall = (): [string, string[], { env?: Record<string, string | undefined> }] => {
+      const m = vi.mocked(nodePty.spawn).mock
+      return m.calls[m.calls.length - 1] as never
+    }
+
+    it('account 2 fresh spawn runs clauded2', async () => {
+      await mgr.spawnPty(getWindow, { projectKey: 'proj-1', account: 2 })
+      expect(lastCall()[1]).toEqual(['-NoLogo', '-NoProfile', '-Command', 'clauded2'])
+    })
+
+    it('account 2 resume runs clauded2 --resume <id>', async () => {
+      await mgr.spawnPty(getWindow, { projectKey: 'proj-1', account: 2, resumeSessionId: 'sess-9' })
+      expect(lastCall()[1]).toEqual(['-NoLogo', '-NoProfile', '-Command', 'clauded2 --resume sess-9'])
+    })
+
+    it('no account and account 1 both run plain clauded, never clauded2', async () => {
+      await mgr.spawnPty(getWindow, { projectKey: 'proj-1' })
+      expect(lastCall()[1][3]).toBe('clauded')
+      await mgr.spawnPty(getWindow, { projectKey: 'proj-1', account: 1 })
+      expect(lastCall()[1][3]).toBe('clauded')
+    })
+
+    it('account 1 strips an inherited CLAUDE_CONFIG_DIR from the pty env', async () => {
+      const prev = process.env.CLAUDE_CONFIG_DIR
+      process.env.CLAUDE_CONFIG_DIR = 'C:/some/other/.claude-2'
+      try {
+        await mgr.spawnPty(getWindow, { projectKey: 'proj-1', account: 1 })
+        expect(lastCall()[2].env).not.toHaveProperty('CLAUDE_CONFIG_DIR')
+      } finally {
+        if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR
+        else process.env.CLAUDE_CONFIG_DIR = prev
+      }
+    })
+
+    it('account 2 env still sets CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN', async () => {
+      await mgr.spawnPty(getWindow, { projectKey: 'proj-1', account: 2 })
+      expect(lastCall()[2].env?.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN).toBe('1')
+    })
+
+    it('passes the account as the 5th arg of registerPendingSpawn', async () => {
+      await mgr.spawnPty(getWindow, { projectKey: 'proj-1', account: 2 })
+      expect(registerPendingSpawn).toHaveBeenCalledWith(
+        expect.any(String),
+        'proj-1',
+        expect.any(Number),
+        undefined,
+        2
+      )
+    })
+  })
+
   describe('reconcile hooks', () => {
     it('a resume spawn preclaims the session and registers a pending spawn with the expected session id', async () => {
       const result = await mgr.spawnPty(getWindow, { projectKey: 'proj-1', resumeSessionId: 'sess-42' })
@@ -313,7 +365,8 @@ describe('pty/manager', () => {
         expect.any(String),
         'proj-1',
         expect.any(Number),
-        'sess-42'
+        'sess-42',
+        1
       )
 
       const spawnMock = vi.mocked(nodePty.spawn)
@@ -330,7 +383,8 @@ describe('pty/manager', () => {
         expect.any(String),
         'proj-1',
         expect.any(Number),
-        undefined
+        undefined,
+        1
       )
 
       const spawnMock = vi.mocked(nodePty.spawn)
@@ -351,7 +405,8 @@ describe('pty/manager', () => {
         expect.any(String),
         'proj-1',
         expect.any(Number),
-        undefined
+        undefined,
+        1
       )
 
       const spawnMock = vi.mocked(nodePty.spawn)

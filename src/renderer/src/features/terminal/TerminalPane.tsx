@@ -4,11 +4,12 @@ import { useStore } from '../../store'
 import { api } from '../../lib/api'
 import { TerminalTabStrip } from './TerminalTabStrip'
 import { TerminalReloadMenu } from './TerminalReloadMenu'
+import { NewTerminalMenu } from './NewTerminalMenu'
 import { XtermView } from './XtermView'
 import { TerminalErrorBoundary } from './TerminalErrorBoundary'
 import { reloadTerminal } from './reloadTerminal'
 import type { TerminalMeta } from '../../store/terminalsSlice'
-import type { SessionStatus } from '../../../../shared/types'
+import type { ClaudeAccountId, SessionStatus } from '../../../../shared/types'
 import './terminal.css'
 
 interface TerminalPaneProps {
@@ -27,6 +28,7 @@ export function TerminalPane({ projectKey }: TerminalPaneProps): React.JSX.Eleme
     x: number
     y: number
   } | null>(null)
+  const [newMenuAt, setNewMenuAt] = useState<{ x: number; y: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const statusByPtyId = useMemo(() => {
@@ -55,10 +57,10 @@ export function TerminalPane({ projectKey }: TerminalPaneProps): React.JSX.Eleme
     return map
   }, [terminals, projects])
 
-  const handleNew = async (): Promise<void> => {
+  const handleNew = async (account: ClaudeAccountId): Promise<void> => {
     try {
-      const { ptyId } = await api.pty.spawn({ projectKey })
-      addTerminal({ ptyId, projectKey, title: '', status: 'running' })
+      const { ptyId } = await api.pty.spawn({ projectKey, account })
+      addTerminal({ ptyId, projectKey, title: '', status: 'running', account })
       setError(null)
     } catch (e) {
       setError((e as Error)?.message ?? 'Failed to open terminal')
@@ -73,9 +75,20 @@ export function TerminalPane({ projectKey }: TerminalPaneProps): React.JSX.Eleme
         statusByPtyId={statusByPtyId}
         onSelect={(ptyId) => setActiveTab(projectKey, ptyId)}
         onClose={closeTerminal}
-        onNew={handleNew}
+        onNew={(rect) => setNewMenuAt({ x: rect.left, y: rect.bottom })}
         onReload={(t, rect) => setReloadTarget({ terminal: t, x: rect.left, y: rect.bottom })}
       />
+      {newMenuAt && (
+        <NewTerminalMenu
+          x={newMenuAt.x}
+          y={newMenuAt.y}
+          onPick={(account) => {
+            setNewMenuAt(null)
+            void handleNew(account)
+          }}
+          onClose={() => setNewMenuAt(null)}
+        />
+      )}
       {reloadTarget && (
         <TerminalReloadMenu
           terminal={reloadTarget.terminal}

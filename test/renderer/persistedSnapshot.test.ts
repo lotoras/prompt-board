@@ -23,8 +23,8 @@ describe('buildPersistedSnapshot', () => {
 
       const result = buildPersistedSnapshot(terminals, {})
       expect(result.terminals).toEqual([
-        { projectKey: 'proj-1', sessionId: 'sid-2', title: 'Second' },
-        { projectKey: 'proj-1', sessionId: 'sid-1', title: 'First' }
+        { projectKey: 'proj-1', sessionId: 'sid-2', title: 'Second', account: 1 },
+        { projectKey: 'proj-1', sessionId: 'sid-1', title: 'First', account: 1 }
       ])
     })
 
@@ -46,6 +46,18 @@ describe('buildPersistedSnapshot', () => {
     })
   })
 
+  describe('account', () => {
+    it('persists the account of an account-2 terminal', () => {
+      const result = buildPersistedSnapshot({ 'pty-1': makeTerminal({ account: 2 }) }, {})
+      expect(result.terminals[0].account).toBe(2)
+    })
+
+    it('persists account 1 for a terminal without an account', () => {
+      const result = buildPersistedSnapshot({ 'pty-1': makeTerminal() }, {})
+      expect(result.terminals[0].account).toBe(1)
+    })
+  })
+
   describe('edge cases / failure', () => {
     it('filters out exited terminals and ones without a sessionId', () => {
       const terminals: Record<string, TerminalMeta> = {
@@ -56,7 +68,7 @@ describe('buildPersistedSnapshot', () => {
 
       const result = buildPersistedSnapshot(terminals, {})
       expect(result.terminals).toEqual([
-        { projectKey: 'proj-1', sessionId: 'sid-3', title: 'Terminal' }
+        { projectKey: 'proj-1', sessionId: 'sid-3', title: 'Terminal', account: 1 }
       ])
     })
 

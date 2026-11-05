@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { TerminalMeta } from '../../src/renderer/src/store/terminalsSlice'
 import type { SessionStatus } from '../../src/shared/types'
 
@@ -217,5 +217,46 @@ describe('TerminalTabStrip', () => {
     fireEvent.click(dot as Element)
     expect(unacknowledge).toHaveBeenCalledWith('sess-w2')
     expect(acknowledge).not.toHaveBeenCalled()
+  })
+
+  function renderStrip(terminals: TerminalMeta[], onNew = vi.fn()): HTMLElement {
+    const { container } = render(
+      <TerminalTabStrip
+        terminals={terminals}
+        activePtyId={undefined}
+        statusByPtyId={{}}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        onNew={onNew}
+        onReload={vi.fn()}
+      />
+    )
+    return container
+  }
+
+  it('calls onNew with a bounding rect when "+ New terminal" is clicked', () => {
+    const onNew = vi.fn()
+    renderStrip([], onNew)
+
+    fireEvent.click(screen.getByText('+ New terminal'))
+
+    expect(onNew).toHaveBeenCalledTimes(1)
+    const rect = onNew.mock.calls[0][0]
+    expect(rect).toHaveProperty('left')
+    expect(rect).toHaveProperty('bottom')
+  })
+
+  it('renders the account badge for an account-2 terminal', () => {
+    const container = renderStrip([makeTerminal({ account: 2 })])
+    const badge = container.querySelector('.terminal-tabs__account')
+    expect(badge?.textContent).toBe('2')
+    expect(badge?.getAttribute('title')).toBe('Claude 2')
+  })
+
+  it('renders account 1 badge for a terminal without an account', () => {
+    const container = renderStrip([makeTerminal()])
+    const badge = container.querySelector('.terminal-tabs__account')
+    expect(badge?.textContent).toBe('1')
+    expect(badge?.getAttribute('title')).toBe('Claude 1')
   })
 })
