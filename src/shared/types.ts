@@ -386,6 +386,8 @@ export type ChatItem =
       /** Short result line, e.g. `312 passed`, `9 results`, or the error text. */
       result?: string
       diff?: DiffBlock
+      /** How the user answered this tool's permission card (live chats in Ask / Accept edits). */
+      approval?: 'allowed' | 'always' | 'denied'
     }
   | {
       kind: 'agent'

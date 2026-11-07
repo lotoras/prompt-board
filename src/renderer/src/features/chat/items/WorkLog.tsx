@@ -6,6 +6,8 @@ import {
   ListChecks,
   Pencil,
   Search,
+  ShieldCheck,
+  ShieldX,
   Sparkles,
   Terminal
 } from 'lucide-react'
@@ -69,8 +71,21 @@ function Step({ step, fresh }: { step: StepItem; fresh: boolean }): React.JSX.El
       <Icon className="i sm" strokeWidth={1.8} />
       <span className="verb">{verb}</span>
       <span className="target">{target}</span>
+      {step.kind === 'tool' && step.approval && <ApprovalMark approval={step.approval} />}
       {meta && <span className={`meta${metaClass}`}>{meta}</span>}
     </div>
+  )
+}
+
+/** Shield next to a tool step that went through a permission card. */
+function ApprovalMark({ approval }: { approval: 'allowed' | 'always' | 'denied' }): React.JSX.Element {
+  const denied = approval === 'denied'
+  const label = denied ? 'You denied this' : approval === 'always' ? 'Allowed for this chat' : 'You allowed this'
+  const Mark = denied ? ShieldX : ShieldCheck
+  return (
+    <span className={`approval${denied ? ' denied' : ''}`} title={label} aria-label={label}>
+      <Mark className="i sm" strokeWidth={1.8} />
+    </span>
   )
 }
 

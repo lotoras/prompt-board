@@ -192,8 +192,17 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
     }
   }
 
+  // chatId -> tool_use id -> the permission answer, stamped onto later updates of that tool.
+  const approvals = new Map<string, Map<string, 'allowed' | 'always' | 'denied'>>()
+
   function emit(chatId: string, upsert: ChatItem[], remove?: string[]): void {
     if (upsert.length === 0 && !remove?.length) return
+    const decided = approvals.get(chatId)
+    if (decided?.size) {
+      upsert = upsert.map((i) =>
+        i.kind === 'tool' && decided.has(i.id) ? { ...i, approval: decided.get(i.id) } : i
+      )
+    }
     deps.emitItems({
       chatId,
       ...(upsert.length ? { upsert } : {}),
@@ -593,6 +602,9 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
       } else {
         p.resolve({ behavior: 'deny', message: d.message ?? 'The user denied this action.' })
       }
+      let decided = approvals.get(chatId)
+      if (!decided) approvals.set(chatId, (decided = new Map()))
+      decided.set(toolUseId, d.allow ? (d.always ? 'always' : 'allowed') : 'denied')
       emit(chatId, [{ ...p.item, state: d.allow ? 'allowed' : 'denied' }])
       deps.emitStatus(chatId, 'busy')
       return true

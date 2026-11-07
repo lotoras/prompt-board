@@ -306,6 +306,29 @@ describe('chat/runner modes, permissions, rewind, probes', () => {
       expect(emitStatus).toHaveBeenCalledWith('chat1', 'busy')
     })
 
+    it('keeps the decision on the tool step after the tool runs (approval)', async () => {
+      const { q } = await askCard()
+      await vi.waitFor(() => expect(emitStatus).toHaveBeenCalledWith('chat1', 'waiting', 'permission'))
+      q.emit({
+        type: 'assistant',
+        uuid: 'a-1',
+        parent_tool_use_id: null,
+        message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: bashInput }] }
+      })
+      runner.decidePermission('chat1', 't1', { allow: true, always: true })
+      q.emit({
+        type: 'user',
+        uuid: 'u-1',
+        parent_tool_use_id: null,
+        message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: '3 passed' }] }
+      })
+      await vi.waitFor(() =>
+        expect(upserts()).toContainEqual(
+          expect.objectContaining({ kind: 'tool', id: 't1', status: 'ok', approval: 'always' })
+        )
+      )
+    })
+
     it('allow always passes the suggestions as updatedPermissions', async () => {
       const { pending } = await askCard()
       await vi.waitFor(() => expect(emitStatus).toHaveBeenCalledWith('chat1', 'waiting', 'permission'))
