@@ -32,6 +32,21 @@ export const ATTACHED_FILES_HEADER = 'Attached files:'
 
 export const DEFAULT_TOGGLES: ChatToggles = { codex: 'off', ultra: false }
 
+const NL = '\n'
+const BLOCK_SEP = '\n\n'
+const DIRECTIVE_SET = new Set<string>(Object.values(DIRECTIVE_LINES))
+const FAMILY_ALIASES = new Set(['opus', 'fable', 'sonnet', 'haiku', 'default'])
+const MODEL_ID = /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d{1,2}))?(?!\d)/
+
+function slug(text: string, max = 40): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, max)
+    .replace(/-+$/g, '')
+}
+
 /**
  * Build the prompt text actually sent to Claude:
  *   <text trimmed>
@@ -45,10 +60,25 @@ export function composePrompt(
   toggles: ChatToggles,
   attachments: Pick<ChatAttachment, 'path' | 'kind'>[]
 ): string {
-  void text
-  void toggles
-  void attachments
-  throw new Error('composePrompt: not implemented')
+  const parts: string[] = []
+  const body = text.trim()
+  if (body) parts.push(body)
+  const files = attachments.filter((a) => a.kind !== 'image').map((a) => a.path)
+  if (files.length) parts.push([ATTACHED_FILES_HEADER, ...files.map((f) => `- ${f}`)].join(NL))
+  const directives: string[] = []
+  if (toggles.ultra) directives.push(DIRECTIVE_LINES.ultra)
+  if (toggles.codex === 'tests') directives.push(DIRECTIVE_LINES.codexTests)
+  else if (toggles.codex === 'full') directives.push(DIRECTIVE_LINES.codexFull)
+  if (directives.length) parts.push(directives.join(NL))
+  return parts.join(BLOCK_SEP)
+}
+
+/** Split off the last blank-line-separated block (or the whole text when there is none). */
+function lastBlock(text: string): { head: string; tail: string } {
+  const at = text.lastIndexOf(BLOCK_SEP)
+  return at >= 0
+    ? { head: text.slice(0, at), tail: text.slice(at + BLOCK_SEP.length) }
+    : { head: '', tail: text }
 }
 
 /**
@@ -62,14 +92,46 @@ export function parseDirectives(prompt: string): {
   directives: ParsedDirectives
   files: string[]
 } {
-  void prompt
-  throw new Error('parseDirectives: not implemented')
+  let rest = prompt.replace(/\r\n/g, NL)
+  const directives: ParsedDirectives = { codex: 'off', ultra: false }
+  let files: string[] = []
+
+  const d = lastBlock(rest)
+  const dLines = d.tail.split(NL)
+  if (d.tail && dLines.every((l) => DIRECTIVE_SET.has(l))) {
+    directives.ultra = dLines.includes(DIRECTIVE_LINES.ultra)
+    directives.codex = dLines.includes(DIRECTIVE_LINES.codexFull)
+      ? 'full'
+      : dLines.includes(DIRECTIVE_LINES.codexTests)
+        ? 'tests'
+        : 'off'
+    rest = d.head
+  }
+
+  const f = lastBlock(rest)
+  const fLines = f.tail.split(NL)
+  if (
+    fLines[0] === ATTACHED_FILES_HEADER &&
+    fLines.length > 1 &&
+    fLines.slice(1).every((l) => l.startsWith('- '))
+  ) {
+    files = fLines.slice(1).map((l) => l.slice(2))
+    rest = f.head
+  }
+
+  return { text: rest, directives, files }
 }
 
 /** input + cache_creation_input + cache_read_input tokens of one usage record. */
 export function contextTokens(usage: unknown): number {
-  void usage
-  throw new Error('contextTokens: not implemented')
+  if (typeof usage !== 'object' || usage === null) return 0
+  const u = usage as Record<string, unknown>
+  let sum = 0
+  for (const key of ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens']) {
+    const v = u[key]
+    if (typeof v === 'number' && Number.isFinite(v)) sum += v
+  }
+  return sum
 }
 
 /**
@@ -78,8 +140,11 @@ export function contextTokens(usage: unknown): number {
  * `claude-fable-5-1`) and for any id ending in `[1m]`; 200,000 otherwise.
  */
 export function contextWindowFor(model: string | undefined): number {
-  void model
-  throw new Error('contextWindowFor: not implemented')
+  if (!model) return 200_000
+  const m = model.trim().toLowerCase()
+  if (m.endsWith('[1m]') || FAMILY_ALIASES.has(m)) return 1_000_000
+  const id = MODEL_ID.exec(m)
+  return id && Number(id[2]) >= 5 ? 1_000_000 : 200_000
 }
 
 /**
@@ -88,18 +153,21 @@ export function contextWindowFor(model: string | undefined): number {
  * Unknown ids are returned unchanged.
  */
 export function modelLabel(model: string | undefined): string {
-  void model
-  throw new Error('modelLabel: not implemented')
+  if (!model) return ''
+  const option = MODEL_OPTIONS.find((o) => o.id === model)
+  if (option) return option.name
+  const id = MODEL_ID.exec(model.toLowerCase())
+  if (!id) return model
+  const family = id[1].charAt(0).toUpperCase() + id[1].slice(1)
+  return `${family} ${id[2]}${id[3] ? '.' + id[3] : ''}`
 }
 
 /** Folder name for a worktree: the part after the last `/`, slugged (a-z0-9-, max 40). */
 export function worktreeSlug(nameOrBranch: string): string {
-  void nameOrBranch
-  throw new Error('worktreeSlug: not implemented')
+  return slug(nameOrBranch.split('/').pop() ?? '') || 'worktree'
 }
 
 /** Suggested branch name for a draft: `pb/<slug of the first line>` (slug max 40). */
 export function suggestBranchName(text: string): string {
-  void text
-  throw new Error('suggestBranchName: not implemented')
+  return `pb/${slug(text.trim().split(NL)[0] ?? '') || 'chat'}`
 }
