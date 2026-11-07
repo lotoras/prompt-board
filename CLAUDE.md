@@ -2,11 +2,9 @@
 
 A personal **command-center desktop app** for Claude Code work: one window showing all your Claude
 CLI sessions **grouped by project** with live status, plus a **manual kanban** board per project and
-one global overview board. Phase 2 adds embedded interactive terminals you launch and type into.
-
-> Greenfield — not yet scaffolded. A refined implementation plan will follow; do not start building
-> app code until then. The approved design lives at
-> `~/.claude/plans/maybe-to-describe-what-greedy-crown.md`.
+one global overview board. Chats are T3-style: projects on the left, the project's chats as tabs
+on top, a rendered chat driven by the **Claude Agent SDK**, and a composer with model / effort /
+Codex / Ultra / worktree / branch controls. The visual contract is `design/preview.html`.
 
 ## "My tasks" = cards on the board (NOT app-development work)
 "What tasks should I do next?" / "what should I work on?" means the user's **kanban cards**, not
@@ -20,17 +18,24 @@ List open cards (not Done) grouped by project and suggest an order.
 ## Stack
 - **Electron + React + TypeScript**, scaffolded with **electron-vite**, packaged with electron-builder.
 - Renderer state via **Zustand**; kanban drag-and-drop via **dnd-kit**.
-- Phase 2 terminals: **xterm.js** (renderer) + **node-pty** (main; needs `@electron/rebuild`).
+- Chats: **@anthropic-ai/claude-agent-sdk** in main (ESM-only → loaded with a real dynamic
+  `import()`; uses the user's `claude.exe`, preset `claude_code`, all setting sources, bypass
+  permissions; `AskUserQuestion` / `ExitPlanMode` arrive at `canUseTool` → native cards).
+- Terminal drawer: **xterm.js** (renderer) + **node-pty** (main; N-API prebuilds, no rebuild needed).
+- UI: **react-markdown** + remark-gfm, **lucide-react**, Inter (bundled), **diff** for edit diffs.
 - Tests: **Vitest** (+ `@testing-library/react` for components).
 
 ## Architecture (three surfaces, strict boundaries)
 - **main** (`src/main/`) — Node/Electron. ALL filesystem / OS access lives here: session-registry &
-  transcript readers, chokidar watchers, PID-liveness, the kanban store, the Phase-2 pty manager.
+  transcript readers, chokidar watchers, PID-liveness, the kanban store, the chat service
+  (`src/main/chat/*`: SDK runner, transcript parser, chat store, attachments), git worktrees
+  (`src/main/git/git.ts`) and the pty manager (terminal drawer, Open in TUI).
 - **preload** (`src/preload/index.ts`) — exposes a typed `window.api` via `contextBridge`
   (`contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`).
 - **renderer** (`src/renderer/`) — pure React; reaches main only through `window.api`. No Node, no `fs`.
 - **shared** (`src/shared/`) — `types.ts` (models + IPC contract — the single source of truth),
-  `pathKey.ts` (normalize real `cwd` → stable `projectKey`).
+  `pathKey.ts` (normalize real `cwd` → stable `projectKey`), `chat.ts` (composePrompt /
+  parseDirectives, context window, model labels, slugs).
 
 ## Data substrate (read-only source of truth — always group by the REAL `cwd`)
 - **Live registry** `~/.claude/sessions/<pid>.json`: pid, sessionId, cwd, status
@@ -44,24 +49,36 @@ List open cards (not Done) grouped by project and suggest an order.
 - **Prompt history** `~/.claude/history.jsonl`: per-project `{display, timestamp, project, sessionId}`
   (Phase-1 optional).
 
-## Repo layout (target)
+## Repo layout
 ```
 src/main/{index,ipc}.ts
-src/main/sessions/{registry,liveness,transcript,watcher}.ts
+src/main/chat/{service,runner,transcriptParser,store,attachments,diff,defaults}.ts
+src/main/git/git.ts
+src/main/sessions/{registry,liveness,transcript,watcher,merge,snapshot,acks}.ts
 src/main/kanban/store.ts
-src/main/pty/manager.ts            # Phase 2
+src/main/pty/{manager,reconcile,persistence,queryInjector}.ts
 src/preload/index.ts               # window.api bridge
-src/renderer/{main.tsx,App.tsx}
-src/renderer/features/{sessions,kanban,terminal}/   # terminal/* = Phase 2
-src/renderer/store/                # Zustand
-src/shared/{types.ts,pathKey.ts}
+src/renderer/src/{main.tsx,App.tsx,Shell.tsx}
+src/renderer/src/features/{chat,kanban,projects,sync,terminal}/
+src/renderer/src/store/            # Zustand (chatsSlice, boards, projects, sessions, ui, sync)
+src/shared/{types.ts,chat.ts,pathKey.ts}
+design/preview.html                # signed-off visual contract
 ```
 
-## Phasing
-- **Phase 1 (no native deps):** project-grouped session board (live status, model, token totals,
-  last-activity, `aiTitle`) + manual kanban (per-project + global) with atomic-write persistence.
-- **Phase 2:** embedded interactive terminals (node-pty + xterm) that spawn `clauded`, reconciled
-  with the registry by cwd+pid. Externally-started sessions stay read-only status cards.
+## Chats
+- Own chats persist in `userData/chats.json` (one-time migration from `terminals.json`); a new chat
+  gets a pre-assigned `sessionId`, so the card link and transcript are known before the first send.
+- The transcript is the source of truth for history; the live SDK stream only adds an overlay.
+- Live sessions started elsewhere show as read-only tabs (`ext:<sessionId>`), live-tailed.
+- New-chat workspace toggles run `git worktree add` under `<repo>/.claude/worktrees/<slug>`
+  (ignored via `.git/info/exclude`) and/or `git switch -c` before the first send.
+- Ultra = `applyFlagSettings({ultracode})` + `ultrathink`; every effort change resends `ultracode`.
+
+## Dev
+- `npm run dev:isolated` runs the app with its own data profile (`PROMPT_BOARD_PROFILE`,
+  `%APPDATA%prompt-board-<profile>`, seeded from the real boards/projects, sync off) next to the
+  everyday app; `npm run smoke:isolated` checks it over CDP 9223 (`--screenshot <png> --width`).
+- electron-vite dev hot-reloads only the renderer; restart the app after main-process changes.
 
 ## Kanban model
 Cards are global entities carrying a `projectKey`; a project board filters by its `projectKey`, the

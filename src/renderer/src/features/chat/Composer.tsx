@@ -6,6 +6,7 @@ import {
   FlaskConical,
   Image as ImageIcon,
   Monitor,
+  Terminal,
   Paperclip,
   Sparkles,
   Square,
@@ -122,15 +123,26 @@ export function Composer({ chat }: { chat: ChatMeta }): React.JSX.Element {
     return () => clearTimeout(t)
   }, [sweep])
 
-  if (external) {
+  if (external || chat.mode === 'tui') {
     return (
       <div className="composer">
         <div className="readonly-note">
-          <Monitor className="i" strokeWidth={1.8} />
-          <span>
-            <b>This session runs in another terminal.</b> It updates here live, and you can continue it
-            here once it ends.
-          </span>
+          {external ? (
+            <Monitor className="i" strokeWidth={1.8} />
+          ) : (
+            <Terminal className="i" strokeWidth={1.8} />
+          )}
+          {external ? (
+            <span>
+              <b>This session runs in another terminal.</b> It updates here live, and you can
+              continue it here once it ends.
+            </span>
+          ) : (
+            <span>
+              <b>This chat continues in the terminal below.</b> It updates here live and comes back
+              to this composer when you exit the TUI.
+            </span>
+          )}
         </div>
       </div>
     )

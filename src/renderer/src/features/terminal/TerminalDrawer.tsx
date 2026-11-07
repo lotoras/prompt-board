@@ -86,6 +86,14 @@ export function TerminalDrawer(): React.JSX.Element {
   const tuiPty = chat ? tuiPtyByChat[chat.chatId] : undefined
   const activeShell = targetKey ? shellPty[targetKey] : undefined
 
+  // A chat already running in the TUI (e.g. after a renderer reload) re-attaches to its terminal;
+  // openInTui is idempotent in main and returns the running pty.
+  const chatId = chat?.chatId
+  const reattach = open && tab === 'tui' && chat?.mode === 'tui' && !tuiPty
+  useEffect(() => {
+    if (reattach && chatId) void openInTui(chatId).catch((e) => console.error(e))
+  }, [reattach, chatId, openInTui])
+
   return (
     <section className={`drawer${open ? ' open' : ''}`} aria-label="Terminal">
       <div className="drawer-tabs">

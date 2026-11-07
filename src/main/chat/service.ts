@@ -635,6 +635,10 @@ async function openInTui(chatId: string): Promise<{ ptyId: string }> {
   const c = await ready()
   const chat = findOwn(chatId)
   if (!chat) throw new Error('Only chats started here can be opened in the terminal')
+  // Already in the TUI (e.g. the renderer reloaded): hand back the running terminal so the
+  // drawer re-attaches instead of starting a second clauded on the same session.
+  const running = c.live.get(chatId)
+  if (running?.mode === 'tui' && running.ptyId) return { ptyId: running.ptyId }
   await ensureHistory(chatId)
   c.runner.close(chatId)
   c.overlay.delete(chat.sessionId)

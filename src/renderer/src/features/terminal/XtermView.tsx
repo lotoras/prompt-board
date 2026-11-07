@@ -167,7 +167,9 @@ export function XtermView({ ptyId, visible }: XtermViewProps): React.JSX.Element
       container.removeEventListener('contextmenu', onContextMenu)
       container.removeEventListener('dragover', onDragOver)
       container.removeEventListener('drop', onDrop)
-      term.dispose()
+      // xterm 5.5 can still have a scroll-area sync queued for the next frame; disposing
+      // synchronously makes it read a torn-down renderer ("reading 'dimensions'").
+      requestAnimationFrame(() => term.dispose())
       termRef.current = null
       fitRef.current = null
     }

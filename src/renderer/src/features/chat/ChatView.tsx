@@ -94,6 +94,7 @@ export function ChatView({ chat }: { chat: ChatMeta }): React.JSX.Element {
 
   const tone = statusTone(chat)
   const external = chat.mode === 'external'
+  const inTui = chat.mode === 'tui'
   const draft = !chat.started && items.length === 0
 
   return (
@@ -114,7 +115,7 @@ export function ChatView({ chat }: { chat: ChatMeta }): React.JSX.Element {
             ) : (
               <span className={`dot ${tone}`} />
             )}
-            {external ? 'Running elsewhere' : (STATUS_LABEL[tone] ?? tone)}
+            {external ? 'Running elsewhere' : inTui ? 'Running in TUI' : (STATUS_LABEL[tone] ?? tone)}
           </span>
           <span className="head-spacer" />
           {card && (
@@ -128,11 +129,13 @@ export function ChatView({ chat }: { chat: ChatMeta }): React.JSX.Element {
               <span>{card.title}</span>
             </button>
           )}
-          {chat.totalTokens ? (
-            <span className="head-meta num">{formatTokens(chat.totalTokens)} tokens</span>
+          {chat.contextTokens ? (
+            <span className="head-meta num" title="Tokens in the current context window">
+              {formatTokens(chat.contextTokens)} tokens
+            </span>
           ) : null}
           <span className="head-meta when">{formatRelativeTime(chat.updatedAt)}</span>
-          {!external && (
+          {!external && !inTui && (
             <button
               type="button"
               className="ghost-btn"

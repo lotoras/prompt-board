@@ -221,6 +221,29 @@ async function main() {
 
   await new Promise((r) => setTimeout(r, 2000))
 
+  // Optional: --screenshot <file.png> [--width 1440] [--height 900] captures the renderer
+  // at a fixed viewport (device metrics override) for visual comparison with the preview.
+  const shotArg = process.argv.indexOf('--screenshot')
+  if (shotArg >= 0 && process.argv[shotArg + 1]) {
+    const num = (flag, fallback) => {
+      const i = process.argv.indexOf(flag)
+      return i >= 0 ? Number(process.argv[i + 1]) || fallback : fallback
+    }
+    const width = num('--width', 1440)
+    const height = num('--height', 900)
+    await cdp.send('Emulation.setDeviceMetricsOverride', {
+      width,
+      height,
+      deviceScaleFactor: 1,
+      mobile: false
+    })
+    await new Promise((r) => setTimeout(r, 600))
+    const shot = await cdp.send('Page.captureScreenshot', { format: 'png' })
+    await cdp.send('Emulation.clearDeviceMetricsOverride')
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(process.argv[shotArg + 1], Buffer.from(shot.data, 'base64'))
+  }
+
   cdp.close()
 
   const summary = { rootChildren, apiType, consoleErrors }
