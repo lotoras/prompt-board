@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { spawnSync } from 'child_process'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
 import type { BrowserWindow } from 'electron'
 // `node-pty` is a native module loaded lazily inside manager.ts via a plain
 // `require('node-pty')`. Vitest's `vi.mock` only intercepts statically/dynamically
@@ -11,16 +15,24 @@ import type { BrowserWindow } from 'electron'
 import * as nodePty from 'node-pty'
 import { IPC_CHANNELS } from '../../src/shared/types'
 
-const { registerPendingSpawn, preclaimSession, isPendingSpawn, reconcileActualRef } = vi.hoisted(() => ({
-  registerPendingSpawn: vi.fn(),
-  preclaimSession: vi.fn(),
-  isPendingSpawn: vi.fn(() => false),
-  // Holds the real (unmocked) reconcile module for the current test's module
-  // generation, so tests can drive its real `registerPendingSpawn` /
-  // `reconcilePendingSpawns` to populate the same pid<->session bindings map
-  // that manager.ts's (merged-mock) `releasePtyBinding`/`listPtyBindings` read.
-  reconcileActualRef: { current: undefined as typeof import('../../src/main/pty/reconcile') | undefined }
-}))
+const { registerPendingSpawn, preclaimSession, isPendingSpawn, clearPendingSpawn, reconcileActualRef } =
+  vi.hoisted(() => {
+    // Holds the real (unmocked) reconcile module for the current test's module
+    // generation, so tests can drive its real `registerPendingSpawn` /
+    // `reconcilePendingSpawns` to populate the same pid<->session bindings map
+    // that manager.ts's (merged-mock) `releasePtyBinding`/`listPtyBindings` read.
+    const reconcileActualRef = {
+      current: undefined as typeof import('../../src/main/pty/reconcile') | undefined
+    }
+    return {
+      registerPendingSpawn: vi.fn(),
+      preclaimSession: vi.fn(),
+      isPendingSpawn: vi.fn(() => false),
+      // Spy that calls through to the real implementation.
+      clearPendingSpawn: vi.fn((ptyId: string) => reconcileActualRef.current!.clearPendingSpawn(ptyId)),
+      reconcileActualRef
+    }
+  })
 
 vi.mock('../../src/main/pty/reconcile', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/main/pty/reconcile')>()
@@ -29,7 +41,8 @@ vi.mock('../../src/main/pty/reconcile', async (importOriginal) => {
     ...actual,
     registerPendingSpawn,
     preclaimSession,
-    isPendingSpawn
+    isPendingSpawn,
+    clearPendingSpawn
   }
 })
 
@@ -46,7 +59,7 @@ const { assertProjectDirectory } = vi.hoisted(() => ({
 }))
 
 type FakePty = {
-  onData: (cb: (data: string) => void) => void
+  onData: (cb: (data: string) => void) => { dispose(): void }
   onExit: (cb: (e: { exitCode: number }) => void) => void
   write: ReturnType<typeof vi.fn>
   resize: ReturnType<typeof vi.fn>
@@ -58,11 +71,12 @@ type FakePty = {
 const fakePtys: FakePty[] = []
 
 function makeFakePty(): FakePty {
-  let dataCb: ((data: string) => void) | undefined
+  const dataCbs = new Set<(data: string) => void>()
   let exitCb: ((e: { exitCode: number }) => void) | undefined
   const p: FakePty = {
     onData: (cb) => {
-      dataCb = cb
+      dataCbs.add(cb)
+      return { dispose: () => dataCbs.delete(cb) }
     },
     onExit: (cb) => {
       exitCb = cb
@@ -70,7 +84,7 @@ function makeFakePty(): FakePty {
     write: vi.fn(),
     resize: vi.fn(),
     kill: vi.fn(),
-    emitData: (d) => dataCb && dataCb(d),
+    emitData: (d) => [...dataCbs].forEach((cb) => cb(d)),
     emitExit: (code) => exitCb && exitCb({ exitCode: code })
   }
   fakePtys.push(p)
@@ -91,6 +105,15 @@ vi.mock('../../src/main/projects/store', () => ({
 }))
 
 const MAX_BUFFER = 256 * 1024
+const MARKER = 'prompt-board: Claude failed to start'
+
+function expectFreshCommand(command: string): void {
+  expect(command).toContain('clauded;')
+  expect(command).toContain(MARKER)
+  expect(command).toContain('codex (')
+  expect(command).toContain('-lt 30')
+  expect(command).not.toContain('"')
+}
 
 describe('pty/manager', () => {
   let mgr: typeof import('../../src/main/pty/manager')
@@ -104,6 +127,7 @@ describe('pty/manager', () => {
     vi.spyOn(nodePty as any, 'spawn').mockImplementation(makeFakePty as any)
     registerPendingSpawn.mockClear()
     preclaimSession.mockClear()
+    clearPendingSpawn.mockClear()
     isPendingSpawn.mockReset()
     isPendingSpawn.mockReturnValue(false)
     locateTranscript.mockReset()
@@ -335,7 +359,8 @@ describe('pty/manager', () => {
 
       const spawnMock = vi.mocked(nodePty.spawn)
       const [, args] = spawnMock.mock.calls[spawnMock.mock.calls.length - 1]
-      expect(args).toEqual(['-NoLogo', '-NoProfile', '-Command', 'clauded'])
+      expect((args as string[]).slice(0, 3)).toEqual(['-NoLogo', '-NoProfile', '-Command'])
+      expectFreshCommand((args as string[])[3])
     })
   })
 
@@ -358,7 +383,7 @@ describe('pty/manager', () => {
       const [, args] = spawnMock.mock.calls[spawnMock.mock.calls.length - 1]
       const command = (args as string[])[3]
       expect(command.startsWith("Write-Host 'prompt-board:")).toBe(true)
-      expect(command.endsWith('clauded')).toBe(true)
+      expectFreshCommand(command)
     })
 
     it('prints the notice when freshFallback is requested even without a resume id', async () => {
@@ -370,15 +395,18 @@ describe('pty/manager', () => {
       const [, args] = spawnMock.mock.calls[spawnMock.mock.calls.length - 1]
       const command = (args as string[])[3]
       expect(command.startsWith("Write-Host 'prompt-board:")).toBe(true)
-      expect(command.endsWith('clauded')).toBe(true)
+      expectFreshCommand(command)
     })
 
-    it('a plain spawn has no notice and argv is exactly clauded', async () => {
+    it('a plain spawn has no notice and starts with the clauded fallback command', async () => {
       await mgr.spawnPty(getWindow, { projectKey: 'proj-1' })
 
       const spawnMock = vi.mocked(nodePty.spawn)
       const [, args] = spawnMock.mock.calls[spawnMock.mock.calls.length - 1]
-      expect(args).toEqual(['-NoLogo', '-NoProfile', '-Command', 'clauded'])
+      const command = (args as string[])[3]
+      expect(command.startsWith('Write-Host')).toBe(false)
+      expect(command.startsWith('clauded') || command.startsWith('$t=Get-Date; clauded')).toBe(true)
+      expectFreshCommand(command)
     })
   })
 
@@ -426,6 +454,142 @@ describe('pty/manager', () => {
       fake.emitExit(0)
 
       expect(reconcileActual.listPtyBindings()).toEqual([])
+    })
+  })
+
+  describe('codex fallback', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    const hasPaste = (fake: FakePty): boolean =>
+      fake.write.mock.calls.some((c) => typeof c[0] === 'string' && c[0].includes('\x1b[200~'))
+
+    it('clears the pending spawn when the marker is split across two chunks (fresh spawn)', async () => {
+      isPendingSpawn.mockReturnValue(true)
+      const { ptyId, fake } = await spawnFake()
+
+      fake.emitData('some output ' + MARKER.slice(0, 15))
+      expect(clearPendingSpawn).not.toHaveBeenCalledWith(ptyId)
+      fake.emitData(MARKER.slice(15) + ' (exit 3) - starting Codex')
+
+      expect(clearPendingSpawn).toHaveBeenCalledWith(ptyId)
+    })
+
+    it('clears the pending spawn only once even if the marker is seen again', async () => {
+      const { ptyId, fake } = await spawnFake()
+
+      fake.emitData(MARKER)
+      fake.emitData(MARKER)
+
+      expect(clearPendingSpawn.mock.calls.filter((c) => c[0] === ptyId)).toHaveLength(1)
+    })
+
+    it('does not clear the pending spawn from the marker path for a resume spawn', async () => {
+      const { ptyId } = await mgr.spawnPty(getWindow, { projectKey: 'proj-1', resumeSessionId: 'sess-42' })
+      const fake = fakePtys[fakePtys.length - 1]
+
+      fake.emitData(MARKER.slice(0, 15))
+      fake.emitData(MARKER.slice(15))
+
+      expect(clearPendingSpawn).not.toHaveBeenCalledWith(ptyId)
+    })
+
+    it('does not clear the pending spawn for unrelated output', async () => {
+      const { ptyId, fake } = await spawnFake()
+
+      fake.emitData('hello world')
+
+      expect(clearPendingSpawn).not.toHaveBeenCalledWith(ptyId)
+    })
+
+    it('never pastes the initialQuery after the marker was seen', async () => {
+      vi.useFakeTimers()
+      await mgr.spawnPty(getWindow, { projectKey: 'proj-1', initialQuery: 'hello' })
+      const fake = fakePtys[fakePtys.length - 1]
+
+      fake.emitData(MARKER)
+      vi.advanceTimersByTime(15000)
+
+      expect(hasPaste(fake)).toBe(false)
+    })
+
+    it('control: without the marker the initialQuery paste is written after 10s', async () => {
+      vi.useFakeTimers()
+      await mgr.spawnPty(getWindow, { projectKey: 'proj-1', initialQuery: 'hello' })
+      const fake = fakePtys[fakePtys.length - 1]
+
+      vi.advanceTimersByTime(15000)
+
+      expect(hasPaste(fake)).toBe(true)
+    })
+
+    describe('shell semantics', () => {
+      let tmp: string
+
+      beforeEach(() => {
+        tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-codex-'))
+        fs.writeFileSync(path.join(tmp, 'codex.cmd'), '@echo CODEX:%*\r\n')
+      })
+
+      afterEach(() => {
+        fs.rmSync(tmp, { recursive: true, force: true })
+      })
+
+      async function runFresh(): Promise<string> {
+        await mgr.spawnPty(getWindow, { projectKey: 'proj-1' })
+        const spawnMock = vi.mocked(nodePty.spawn)
+        const [, args] = spawnMock.mock.calls[spawnMock.mock.calls.length - 1]
+        const sysRoot = process.env.SystemRoot!
+        const r = spawnSync(
+          path.join(sysRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+          args as string[],
+          {
+            cwd: tmp,
+            env: {
+              PATH: `${tmp};${sysRoot}\\System32`,
+              PATHEXT: process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD',
+              SystemRoot: sysRoot,
+              ComSpec: process.env.ComSpec ?? path.join(sysRoot, 'System32', 'cmd.exe')
+            },
+            encoding: 'utf8',
+            timeout: 30000
+          }
+        )
+        return `${r.stdout ?? ''}${r.stderr ?? ''}`
+      }
+
+      it.runIf(process.platform === 'win32')(
+        'clauded failing fast starts codex with the marker and exit code',
+        async () => {
+          fs.writeFileSync(path.join(tmp, 'clauded.cmd'), '@exit /b 3\r\n')
+          const out = await runFresh()
+          expect(out).toContain(MARKER)
+          expect(out).toContain('exit 3')
+          expect(out).toContain('CODEX:')
+        },
+        40000
+      )
+
+      it.runIf(process.platform === 'win32')(
+        'missing clauded starts codex with command not found',
+        async () => {
+          const out = await runFresh()
+          expect(out).toContain('command not found')
+          expect(out).toContain('CODEX:')
+        },
+        40000
+      )
+
+      it.runIf(process.platform === 'win32')(
+        'clauded exiting 0 does not start codex',
+        async () => {
+          fs.writeFileSync(path.join(tmp, 'clauded.cmd'), '@exit /b 0\r\n')
+          const out = await runFresh()
+          expect(out).not.toContain('CODEX:')
+        },
+        40000
+      )
     })
   })
 

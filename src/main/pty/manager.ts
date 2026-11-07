@@ -47,6 +47,25 @@ const MAX_BUFFER = 256 * 1024
 const DEFAULT_COLS = 80
 const DEFAULT_ROWS = 24
 const RESUME_FAILURE_MS = 10000
+const CODEX_FALLBACK_WINDOW_S = 30
+const CODEX_FALLBACK_MARKER = 'prompt-board: Claude failed to start'
+
+/**
+ * Fresh `clauded` launch with a startup-failure net: if `clauded` is missing
+ * or exits with an error within `CODEX_FALLBACK_WINDOW_S`, the same shell
+ * starts Codex seeded with the failure so it can be fixed in this terminal.
+ * Single-quoted PowerShell only — no `"` (node-pty quotes the argv).
+ */
+function freshCommand(notice: string): string {
+  return (
+    `${notice}$t=Get-Date; clauded; $ok=$?; $code=$LASTEXITCODE; ` +
+    `if (-not $ok -and ((Get-Date)-$t).TotalSeconds -lt ${CODEX_FALLBACK_WINDOW_S}) { ` +
+    `if ($code -eq $null) { $code='command not found' } else { $code='exit ' + $code }; ` +
+    `Write-Host ('${CODEX_FALLBACK_MARKER} (' + $code + ') - starting Codex') -ForegroundColor Yellow; ` +
+    `codex ('clauded (the Claude Code launcher) failed to start in this folder (' + $code + '). ` +
+    `Find out why, for example with where.exe clauded and clauded --version, then fix it so clauded starts.') }`
+  )
+}
 
 /**
  * Spawn `clauded` for a manually configured project (requires a
@@ -83,7 +102,7 @@ export async function spawnPty(
       : undefined
   const downgraded = Boolean(input.resumeSessionId) && !resumeSessionId
   const notice = downgraded || input.freshFallback ? NOTICE : ''
-  const command = resumeSessionId ? `clauded --resume ${resumeSessionId}` : `${notice}clauded`
+  const command = resumeSessionId ? `clauded --resume ${resumeSessionId}` : freshCommand(notice)
   const args = ['-NoLogo', '-NoProfile', '-Command', command]
   const ptyProcess = pty.spawn('powershell.exe', args, {
     cwd: project.basePath,
@@ -111,9 +130,21 @@ export async function spawnPty(
     freshFallback: Boolean(input.freshFallback)
   })
 
+  let cancelInjection: (() => void) | undefined
+  let watchFallback = !resumeSessionId
+
   ptyProcess.onData((data) => {
     const next = (buffers.get(ptyId) ?? '') + data
     buffers.set(ptyId, next.length > MAX_BUFFER ? next.slice(next.length - MAX_BUFFER) : next)
+    if (
+      watchFallback &&
+      next.slice(-(data.length + CODEX_FALLBACK_MARKER.length)).includes(CODEX_FALLBACK_MARKER)
+    ) {
+      watchFallback = false
+      clearPendingSpawn(ptyId)
+      cancelInjection?.()
+      restoreLog('codexFallback', { ptyId })
+    }
     const win = getWindow()
     if (win && !win.isDestroyed()) {
       win.webContents.send(IPC_CHANNELS.pty.data, { ptyId, data })
@@ -144,7 +175,7 @@ export async function spawnPty(
   })
 
   if (input.initialQuery) {
-    scheduleQueryInjection(ptyProcess, input.initialQuery, spawnedAt)
+    cancelInjection = scheduleQueryInjection(ptyProcess, input.initialQuery, spawnedAt)
   }
 
   return { ptyId, resumed: Boolean(resumeSessionId) }

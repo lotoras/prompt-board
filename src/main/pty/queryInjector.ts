@@ -9,20 +9,30 @@ const FALLBACK_MS = 10000
  * quiet after startup: first output seen AND no data for `QUIESCENCE_MS` AND
  * at least `MIN_DELAY_MS` since spawn, with a `FALLBACK_MS` hard timeout.
  * Injected as a bracketed paste (no trailing `\r`) so it sits pre-typed and
- * unsubmitted in Claude's input box.
+ * unsubmitted in Claude's input box. Returns a cancel function that drops a
+ * not-yet-injected query.
  */
-export function scheduleQueryInjection(ptyProcess: IPty, query: string, spawnedAt: number): void {
+export function scheduleQueryInjection(
+  ptyProcess: IPty,
+  query: string,
+  spawnedAt: number
+): () => void {
   let injected = false
   let quietTimer: ReturnType<typeof setTimeout> | null = null
   let fallbackTimer: ReturnType<typeof setTimeout> | null = null
   let dataDisposable: { dispose(): void } | null = null
 
-  const inject = (): void => {
-    if (injected) return
+  const settle = (): boolean => {
+    if (injected) return false
     injected = true
     if (quietTimer) clearTimeout(quietTimer)
     if (fallbackTimer) clearTimeout(fallbackTimer)
     dataDisposable?.dispose()
+    return true
+  }
+
+  const inject = (): void => {
+    if (!settle()) return
 
     const normalized = query.replace(/\r\n/g, '\n')
     ptyProcess.write(`\x1b[200~${normalized}\x1b[201~`)
@@ -47,4 +57,8 @@ export function scheduleQueryInjection(ptyProcess: IPty, query: string, spawnedA
   fallbackTimer = setTimeout(() => {
     inject()
   }, FALLBACK_MS)
+
+  return () => {
+    settle()
+  }
 }
