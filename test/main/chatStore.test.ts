@@ -16,7 +16,7 @@ vi.mock('electron', () => ({
   BrowserWindow: class {}
 }))
 
-const DEFAULTS = { model: 'opus', effort: 'high' } as const
+const DEFAULTS = { model: 'opus', effort: 'high', permissionMode: 'plan' } as const
 
 function project(key: string, basePath: string): Project {
   return { projectKey: key, name: key, basePath, createdAt: 0, updatedAt: 0 }
@@ -47,6 +47,7 @@ describe('chat/store migrateFromTerminals', () => {
         model: 'opus',
         effort: 'high',
         toggles: DEFAULT_TOGGLES,
+        permissionMode: 'plan',
         started: true,
         createdAt: 1234,
         updatedAt: 1234
@@ -54,6 +55,19 @@ describe('chat/store migrateFromTerminals', () => {
       expect.objectContaining({ chatId: 'mig-s2', sessionId: 's2', title: 'Chat' })
     ])
     expect(out.activeByProject).toEqual({ p1: 'mig-s2' })
+  })
+
+  it('defaults a migrated chat permissionMode to bypassPermissions when not given', async () => {
+    const { migrateFromTerminals } = await load()
+    const t: PersistedTerminalsState = {
+      terminals: [{ projectKey: 'p1', sessionId: 's1', title: 'x' }],
+      activeSessionByProject: {}
+    }
+    const out = migrateFromTerminals(t, [project('p1', 'C:\\work\\p1')], 1, {
+      model: 'opus',
+      effort: 'high'
+    } as any)
+    expect(out.chats[0].permissionMode).toBe('bypassPermissions')
   })
 
   it('drops terminals whose project no longer exists', async () => {
@@ -98,6 +112,7 @@ describe('chat/store persistence', () => {
           model: 'sonnet',
           effort: 'low',
           toggles: { codex: 'tests', ultra: true },
+          permissionMode: 'acceptEdits',
           started: false,
           createdAt: 1,
           updatedAt: 2
@@ -108,6 +123,39 @@ describe('chat/store persistence', () => {
     await saveChatsState(state)
     expect(JSON.parse(await fs.readFile(join(tmpDir, 'chats.json'), 'utf8'))).toEqual(state)
     expect(await loadChatsState()).toEqual(state)
+  })
+
+  it('fills a missing or invalid permissionMode with bypassPermissions', async () => {
+    const base = {
+      projectKey: 'p1',
+      sessionId: 's',
+      title: 'T',
+      cwd: 'C:\\work\\p1',
+      model: 'opus',
+      effort: 'high',
+      toggles: { codex: 'off', ultra: false },
+      started: true,
+      createdAt: 1,
+      updatedAt: 1
+    }
+    await fs.writeFile(
+      join(tmpDir, 'chats.json'),
+      JSON.stringify({
+        chats: [
+          { ...base, chatId: 'missing' },
+          { ...base, chatId: 'bad', permissionMode: 'nonsense' },
+          { ...base, chatId: 'plan', permissionMode: 'plan' }
+        ],
+        activeByProject: {}
+      })
+    )
+    const { loadChatsState } = await load()
+    const { chats } = await loadChatsState()
+    expect(chats.map((c) => [c.chatId, c.permissionMode])).toEqual([
+      ['missing', 'bypassPermissions'],
+      ['bad', 'bypassPermissions'],
+      ['plan', 'plan']
+    ])
   })
 
   it('returns an empty state for a corrupt chats.json', async () => {
@@ -136,6 +184,7 @@ describe('chat/store persistence', () => {
       sessionId: 's1',
       title: 'Old terminal',
       cwd: 'C:\\work\\p1',
+      permissionMode: 'bypassPermissions',
       started: true
     })
     expect(state.activeByProject).toEqual({ p1: 'mig-s1' })

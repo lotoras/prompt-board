@@ -96,6 +96,7 @@ function makeChat(overrides: Partial<ChatMeta> = {}): ChatMeta {
     model: 'opus',
     effort: 'high',
     toggles: DEFAULT_TOGGLES,
+    permissionMode: 'bypassPermissions',
     status: 'idle',
     mode: 'sdk',
     started: false,

@@ -11,6 +11,7 @@ export function makeChat(overrides: Partial<ChatMeta> = {}): ChatMeta {
     model: 'opus',
     effort: 'high',
     toggles: { codex: 'off', ultra: false },
+    permissionMode: 'bypassPermissions',
     status: 'idle',
     mode: 'sdk',
     started: true,
@@ -57,3 +58,14 @@ export const question = (id: string): ChatItem => ({
   state: 'pending'
 })
 export const plan = (id: string): ChatItem => ({ kind: 'plan', id, plan: 'p', state: 'pending' })
+export const permission = (id: string, extra: Record<string, unknown> = {}): ChatItem =>
+  ({
+    kind: 'permission',
+    id,
+    toolName: 'Bash',
+    title: 'Claude wants to run npm test',
+    summary: 'npm test',
+    canAlwaysAllow: true,
+    state: 'pending',
+    ...extra
+  }) as ChatItem
