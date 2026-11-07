@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import type { BrowserWindow } from 'electron'
 import type { IPty } from 'node-pty'
+import { pathKey } from '../../shared/pathKey'
 import { IPC_CHANNELS } from '../../shared/types'
 import type { PtySpawnInput, PtySpawnResult } from '../../shared/types'
 import { assertProjectDirectory, listProjects } from '../projects/store'
@@ -74,7 +75,8 @@ function freshCommand(notice: string): string {
  */
 export async function spawnPty(
   getWindow: () => BrowserWindow | null,
-  input: PtySpawnInput
+  input: PtySpawnInput,
+  onExit?: () => void
 ): Promise<PtySpawnResult> {
   const pty = loadPty()
   if (!pty) throw new Error('pty not available')
@@ -91,21 +93,39 @@ export async function spawnPty(
     throw new Error(`Cannot start a terminal for "${project.name}": ${(err as Error).message}`)
   }
 
+  let cwd = project.basePath
+  if (input.cwd) {
+    const base = pathKey(project.basePath)
+    const wanted = pathKey(input.cwd)
+    if (wanted !== base && !wanted.startsWith(`${base}/.claude/worktrees/`)) {
+      throw new Error(`Terminal folder is outside project "${project.name}": ${input.cwd}`)
+    }
+    cwd = input.cwd
+    if (cwd !== project.basePath) {
+      try {
+        await assertProjectDirectory(cwd)
+      } catch (err) {
+        throw new Error(`Cannot start a terminal in "${cwd}": ${(err as Error).message}`)
+      }
+    }
+  }
+
   const ptyId = randomUUID()
+  const shellMode = input.mode === 'shell'
 
   const NOTICE =
     "Write-Host 'prompt-board: could not resume previous session - started fresh' -ForegroundColor DarkGray; "
 
   const resumeSessionId =
-    input.resumeSessionId && (await locateTranscript(input.resumeSessionId))
+    !shellMode && input.resumeSessionId && (await locateTranscript(input.resumeSessionId))
       ? input.resumeSessionId
       : undefined
-  const downgraded = Boolean(input.resumeSessionId) && !resumeSessionId
+  const downgraded = !shellMode && Boolean(input.resumeSessionId) && !resumeSessionId
   const notice = downgraded || input.freshFallback ? NOTICE : ''
   const command = resumeSessionId ? `clauded --resume ${resumeSessionId}` : freshCommand(notice)
-  const args = ['-NoLogo', '-NoProfile', '-Command', command]
+  const args = shellMode ? ['-NoLogo'] : ['-NoLogo', '-NoProfile', '-Command', command]
   const ptyProcess = pty.spawn('powershell.exe', args, {
-    cwd: project.basePath,
+    cwd,
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
     useConpty: true,
@@ -116,10 +136,12 @@ export async function spawnPty(
   buffers.set(ptyId, '')
 
   const spawnedAt = Date.now()
-  if (resumeSessionId) {
-    preclaimSession(resumeSessionId)
+  if (!shellMode) {
+    if (resumeSessionId) {
+      preclaimSession(resumeSessionId)
+    }
+    registerPendingSpawn(ptyId, input.projectKey, spawnedAt, resumeSessionId)
   }
-  registerPendingSpawn(ptyId, input.projectKey, spawnedAt, resumeSessionId)
   restoreLog('spawn', {
     ptyId,
     pid: ptyProcess.pid,
@@ -131,7 +153,7 @@ export async function spawnPty(
   })
 
   let cancelInjection: (() => void) | undefined
-  let watchFallback = !resumeSessionId
+  let watchFallback = !shellMode && !resumeSessionId
 
   ptyProcess.onData((data) => {
     const next = (buffers.get(ptyId) ?? '') + data
@@ -172,9 +194,10 @@ export async function spawnPty(
     if (win && !win.isDestroyed()) {
       win.webContents.send(IPC_CHANNELS.pty.exit, { ptyId, exitCode, resumeFailed })
     }
+    onExit?.()
   })
 
-  if (input.initialQuery) {
+  if (input.initialQuery && !shellMode) {
     cancelInjection = scheduleQueryInjection(ptyProcess, input.initialQuery, spawnedAt)
   }
 

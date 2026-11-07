@@ -1,82 +1,70 @@
-import { useStore } from './store'
-import { api } from './lib/api'
+import { Calendar, SquareKanban } from 'lucide-react'
 import { GLOBAL_BOARD_PROJECT_KEY } from '../../shared/types'
+import { useStore } from './store'
+import { BOARD_TAB } from './store/chatsSlice'
+import { useShortcuts } from './lib/shortcuts'
 import { ProjectSidebar } from './features/projects/ProjectSidebar'
 import { ProjectEditorModal } from './features/projects/ProjectEditorModal'
 import { SyncSettingsModal } from './features/sync/SyncSettingsModal'
-import { SessionBoard } from './features/sessions/SessionBoard'
 import { KanbanBoard } from './features/kanban/KanbanBoard'
 import { AktuellesList } from './features/kanban/AktuellesList'
-import { TerminalPane } from './features/terminal/TerminalPane'
-import type { ProjectTab } from './store/uiSlice'
-import './shell.css'
+import { CardEditorModal } from './features/kanban/CardEditorModal'
+import { ChatTabs, MenuButton } from './features/chat/ChatTabs'
+import { ChatView } from './features/chat/ChatView'
+import { Toast } from './features/chat/Toast'
+import { TerminalDrawer } from './features/terminal/TerminalDrawer'
 
-const TABS: { id: ProjectTab; label: string }[] = [
-  { id: 'sessions', label: 'Sessions' },
-  { id: 'board', label: 'Board' },
-  { id: 'terminals', label: 'Terminals' }
-]
+function GlobalTabs(): React.JSX.Element {
+  const mode = useStore((s) => s.globalBoardMode)
+  const Icon = mode === 'board' ? SquareKanban : Calendar
+  return (
+    <nav className="tabs" aria-label="Global">
+      <MenuButton />
+      <div className="tabs-scroll">
+        <div className="tab on" style={{ cursor: 'default' }}>
+          <Icon className="i" strokeWidth={1.8} />
+          <span className="tab-title">{mode === 'board' ? 'Global board' : 'Aktuelles'}</span>
+        </div>
+      </div>
+    </nav>
+  )
+}
+
+function ProjectView({ projectKey }: { projectKey: string }): React.JSX.Element {
+  const tab = useStore((s) => s.activeTabFor(projectKey))
+  const chat = useStore((s) => (tab === BOARD_TAB ? undefined : s.chats.find((c) => c.chatId === tab)))
+  if (!chat) return <KanbanBoard projectKey={projectKey} />
+  return <ChatView key={chat.chatId} chat={chat} />
+}
 
 export function Shell(): React.JSX.Element {
+  useShortcuts()
   const view = useStore((s) => s.view)
-  const setProjectTab = useStore((s) => s.setProjectTab)
   const globalBoardMode = useStore((s) => s.globalBoardMode)
-  const setGlobalBoardMode = useStore((s) => s.setGlobalBoardMode)
-  const projectView = useStore((s) =>
-    view.kind === 'project' ? s.projectView(view.projectKey) : undefined
-  )
+  const sideOpen = useStore((s) => s.sideOpen)
+  const setSideOpen = useStore((s) => s.setSideOpen)
 
   return (
-    <div className="shell">
+    <div className={`app${sideOpen ? ' side-open' : ''}`}>
       <ProjectSidebar />
-      <main className="shell__main">
-        {view.kind === 'global-board' && (
-          <>
-            <div className="shell__header">Global Board</div>
-            <div className="shell__tabs">
-              {(['board', 'aktuelles'] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  className={`shell__tab${globalBoardMode === m ? ' shell__tab--active' : ''}`}
-                  onClick={() => setGlobalBoardMode(m)}
-                >
-                  {m === 'board' ? 'Board' : 'Aktuelles'}
-                </button>
-              ))}
-            </div>
-            {globalBoardMode === 'board' ? (
+      <div className="scrim" onClick={() => setSideOpen(false)} />
+      <main className="main">
+        {view.kind === 'project' ? <ChatTabs projectKey={view.projectKey} /> : <GlobalTabs />}
+        <div className="view">
+          {view.kind === 'global-board' &&
+            (globalBoardMode === 'board' ? (
               <KanbanBoard projectKey={GLOBAL_BOARD_PROJECT_KEY} />
             ) : (
               <AktuellesList />
-            )}
-          </>
-        )}
-
-        {view.kind === 'project' && (
-          <>
-            <div className="shell__header">{projectView?.name ?? view.projectKey}</div>
-            <div className="shell__tabs">
-              {TABS.filter((tab) => tab.id !== 'terminals' || api.caps.pty).map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  className={`shell__tab${view.tab === tab.id ? ' shell__tab--active' : ''}`}
-                  onClick={() => setProjectTab(tab.id)}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {view.tab === 'sessions' && <SessionBoard projectKey={view.projectKey} />}
-            {view.tab === 'board' && <KanbanBoard projectKey={view.projectKey} />}
-            {view.tab === 'terminals' && api.caps.pty && <TerminalPane projectKey={view.projectKey} />}
-          </>
-        )}
+            ))}
+          {view.kind === 'project' && <ProjectView projectKey={view.projectKey} />}
+        </div>
+        <TerminalDrawer />
       </main>
+      <CardEditorModal />
       <ProjectEditorModal />
       <SyncSettingsModal />
+      <Toast />
     </div>
   )
 }

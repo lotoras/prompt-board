@@ -1,12 +1,13 @@
 import { useState } from 'react'
-import './kanban.css'
+import { X } from 'lucide-react'
 
 interface TagInputProps {
   tags: string[]
   onChange: (tags: string[]) => void
+  id?: string
 }
 
-export function TagInput({ tags, onChange }: TagInputProps): React.JSX.Element {
+export function TagInput({ tags, onChange, id }: TagInputProps): React.JSX.Element {
   const [draft, setDraft] = useState('')
 
   const addTag = (): void => {
@@ -20,24 +21,23 @@ export function TagInput({ tags, onChange }: TagInputProps): React.JSX.Element {
   }
 
   return (
-    <div className="tag-input">
-      <div className="tag-input__chips">
-        {tags.map((tag) => (
-          <span key={tag} className="tag-chip">
-            {tag}
-            <button
-              type="button"
-              className="tag-chip__remove"
-              onClick={() => onChange(tags.filter((t) => t !== tag))}
-            >
-              ×
-            </button>
-          </span>
-        ))}
-      </div>
+    <div className="tags-in">
+      {tags.map((tag) => (
+        <span key={tag} className="tag">
+          {tag}
+          <button
+            type="button"
+            aria-label={`Remove ${tag}`}
+            onClick={() => onChange(tags.filter((t) => t !== tag))}
+          >
+            <X className="i sm" strokeWidth={1.8} />
+          </button>
+        </span>
+      ))}
       <input
+        id={id}
         value={draft}
-        placeholder="Add tag…"
+        placeholder="Add a tag and press Enter"
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {

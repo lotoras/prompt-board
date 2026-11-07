@@ -2,6 +2,7 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { chatService, initChatService } from './chat/service'
 import { registerIpcHandlers } from './ipc'
 import { setWindowGetter as setKanbanWindowGetter } from './kanban/store'
 import { setWindowGetter as setProjectsWindowGetter } from './projects/store'
@@ -121,6 +122,7 @@ if (gotLock) {
     setKanbanWindowGetter(() => mainWindow)
 
     createWindow()
+    initChatService(() => mainWindow)
 
     startSessionsWatcher(() => mainWindow)
     void startSync(() => mainWindow)
@@ -147,6 +149,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   restoreLog('before-quit')
+  void chatService.shutdown()
   killAllPtys()
 })
 

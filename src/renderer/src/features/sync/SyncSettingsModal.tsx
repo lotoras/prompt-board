@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
+import { X } from 'lucide-react'
 import { useStore } from '../../store'
 import { api } from '../../lib/api'
 import { formatRelativeTime } from '../../lib/format'
 import { syncDotColor } from './syncStatus'
-import './sync.css'
 
 interface SyncSettingsFormProps {
   onClose: () => void
@@ -58,61 +58,72 @@ function SyncSettingsForm({ onClose }: SyncSettingsFormProps): React.JSX.Element
     setSyncStatus({ state: 'disabled', pendingOps: 0 })
   }
 
+  const field = (
+    id: string,
+    label: string,
+    value: string,
+    onChange: (v: string) => void,
+    extra: { type?: string; placeholder?: string; autoFocus?: boolean } = {}
+  ): React.JSX.Element => (
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
+      <input id={id} value={value} onChange={(e) => onChange(e.target.value)} {...extra} />
+    </div>
+  )
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleConnect}>
-        <h2>Sync settings</h2>
+    <div className="modal-bg" onClick={onClose}>
+      <form
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={handleConnect}
+      >
+        <div className="modal-head">
+          <h2>Sync settings</h2>
+          <button type="button" className="ctl icon" aria-label="Close" onClick={onClose}>
+            <X className="i" strokeWidth={1.8} />
+          </button>
+        </div>
 
-        {configured && !reconnecting ? (
-          <div className="sync-modal__status">
-            <span className={`sync-dot sync-dot--${syncDotColor(syncStatus)}`} />
-            <span>
-              {syncStatus.state}
-              {syncStatus.pendingOps > 0 && ` · ${syncStatus.pendingOps} pending`}
-              {syncStatus.lastSyncAt && ` · synced ${formatRelativeTime(syncStatus.lastSyncAt)}`}
-            </span>
-            {syncStatus.error && <span className="sync-modal__error">{syncStatus.error}</span>}
-          </div>
-        ) : (
-          <>
-            <label className="modal__field">
-              Supabase URL
-              <input value={url} onChange={(e) => setUrl(e.target.value)} autoFocus />
-            </label>
+        <div className="modal-body">
+          {configured && !reconnecting ? (
+            <div className="sync-status-line">
+              <span className={`ok ${syncDotColor(syncStatus)}`} />
+              <span>
+                {syncStatus.state}
+                {syncStatus.pendingOps > 0 && ` · ${syncStatus.pendingOps} pending`}
+                {syncStatus.lastSyncAt && ` · synced ${formatRelativeTime(syncStatus.lastSyncAt)}`}
+              </span>
+              {syncStatus.error && <span className="modal-error">{syncStatus.error}</span>}
+            </div>
+          ) : (
+            <>
+              {field('sync-url', 'Supabase URL', url, setUrl, { autoFocus: true })}
+              {field('sync-key', 'Anon key', anonKey, setAnonKey)}
+              {field('sync-email', 'Email', email, setEmail, { type: 'email' })}
+              {field('sync-password', 'Password', password, setPassword, {
+                type: 'password',
+                placeholder: passwordSaved ? '•••••• (saved)' : undefined
+              })}
+            </>
+          )}
 
-            <label className="modal__field">
-              Anon key
-              <input value={anonKey} onChange={(e) => setAnonKey(e.target.value)} />
-            </label>
+          {error && <div className="modal-error">{error}</div>}
+        </div>
 
-            <label className="modal__field">
-              Email
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-            </label>
-
-            <label className="modal__field">
-              Password
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={passwordSaved ? '•••••• (saved)' : undefined}
-              />
-            </label>
-          </>
-        )}
-
-        {error && <div className="sync-modal__error">{error}</div>}
-
-        <div className="modal__actions">
+        <div className="modal-foot">
           {configured && !reconnecting && (
-            <button type="button" className="modal__delete" onClick={handleSignOut}>
+            <button type="button" className="btn danger" onClick={handleSignOut}>
               Sign out
             </button>
           )}
+          <span className="spacer" />
           {configured && !reconnecting && (
             <button
               type="button"
+              className="btn outline"
               onClick={() => {
                 setError(null)
                 setReconnecting(true)
@@ -121,11 +132,11 @@ function SyncSettingsForm({ onClose }: SyncSettingsFormProps): React.JSX.Element
               Reconnect
             </button>
           )}
-          <button type="button" onClick={onClose}>
+          <button type="button" className="btn quiet" onClick={onClose}>
             Close
           </button>
           {(!configured || reconnecting) && (
-            <button type="submit" disabled={connecting}>
+            <button type="submit" className="btn primary" disabled={connecting}>
               {connecting ? 'Connecting…' : 'Connect'}
             </button>
           )}

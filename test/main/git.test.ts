@@ -129,14 +129,14 @@ describe('main/git', () => {
       const res = await prepareWorkspace(repo, {
         newWorktree: true,
         newBranch: true,
-        branchName: 'pb/Context Meter'
+        branchName: 'pb/Context-Meter'
       })
-      expect(res.branch).toBe('pb/Context Meter')
+      expect(res.branch).toBe('pb/Context-Meter')
       expect(res.worktreePath).toBe('.claude/worktrees/context-meter')
       expect(norm(res.cwd)).toBe(norm(join(repo, '.claude', 'worktrees', 'context-meter')))
       const stat = await fs.stat(join(res.cwd, 'a.txt'))
       expect(stat.isFile()).toBe(true)
-      expect(await git(res.cwd, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('pb/Context Meter')
+      expect(await git(res.cwd, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('pb/Context-Meter')
     })
 
     it('creates a detached worktree when only the worktree toggle is on', async () => {

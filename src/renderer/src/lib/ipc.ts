@@ -1,47 +1,57 @@
 import { useEffect } from 'react'
 import { api } from './api'
 import { useStore } from '../store'
-import { buildPersistedSnapshot } from '../features/terminal/persistedSnapshot'
-import { reloadTerminal } from '../features/terminal/reloadTerminal'
+import { BOARD_TAB } from '../store/chatsSlice'
 import { createAttentionChime } from '../features/sessions/attentionChime'
 import { playCoinBlip } from './retroSound'
 
-// Restore runs exactly once per app launch, even if the bootstrap effect
-// re-mounts (React StrictMode double-invokes effects in dev).
-let restoreStarted = false
-let restoreDone = false
-
 /**
- * One-time bootstrap: loads initial state and subscribes to `sessions:changed`.
- * Call once near the app root.
+ * One-time bootstrap: loads initial state and subscribes to the main-process events
+ * (`sessions:changed`, `chat:changed`, `chat:items`, ...). Call once near the app root.
  */
 export function useIpcBootstrap(): void {
   useEffect(() => {
-    const setSnapshot = useStore.getState().setSnapshot
-    const loadProjects = useStore.getState().loadProjects
-    const loadBoards = useStore.getState().loadBoards
-    const setProjects = useStore.getState().setProjects
-    const setBoards = useStore.getState().setBoards
-    const setSyncStatus = useStore.getState().setSyncStatus
+    const store = useStore.getState()
 
     let pushed = false
-    api.sessions.list().then((snapshot) => {
-      if (!pushed) setSnapshot(snapshot)
-    }).catch((error) => {
-      console.error(error)
-      useStore.getState().setSessionsError("Couldn't load sessions — retrying…")
-    })
-    const loadProjectsPromise = loadProjects()
-    loadBoards()
-    api.sync.getStatus().then(setSyncStatus)
+    api.sessions
+      .list()
+      .then((snapshot) => {
+        if (!pushed) store.setSnapshot(snapshot)
+      })
+      .catch((error) => {
+        console.error(error)
+        useStore.getState().setSessionsError("Couldn't load sessions — retrying…")
+      })
+    void store.loadProjects()
+    void store.loadBoards()
+    api.sync.getStatus().then(store.setSyncStatus)
+
+    let chatsPushed = false
+    api.chat
+      .list()
+      .then(({ chats, activeByProject }) => {
+        if (chatsPushed) {
+          useStore.getState().setActiveByProject({ ...activeByProject, ...useStore.getState().activeByProject })
+          return
+        }
+        useStore.getState().setChats(chats)
+        useStore.getState().setActiveByProject(activeByProject)
+      })
+      .catch((error) => console.error(error))
 
     const unsubscribe = api.sessions.onChanged((snapshot) => {
       pushed = true
-      setSnapshot(snapshot)
+      store.setSnapshot(snapshot)
     })
-    const unsubProjects = api.projects.onChanged(setProjects)
-    const unsubBoards = api.kanban.onChanged(setBoards)
-    const unsubSyncStatus = api.sync.onStatus(setSyncStatus)
+    const unsubProjects = api.projects.onChanged(store.setProjects)
+    const unsubBoards = api.kanban.onChanged(store.setBoards)
+    const unsubSyncStatus = api.sync.onStatus(store.setSyncStatus)
+    const unsubChats = api.chat.onChanged((chats) => {
+      chatsPushed = true
+      useStore.getState().setChats(chats)
+    })
+    const unsubItems = api.chat.onItems((event) => useStore.getState().applyItems(event))
 
     const applyInset = (px: number): void =>
       document.documentElement.style.setProperty('--app-bottom-inset', `${px}px`)
@@ -56,99 +66,33 @@ export function useIpcBootstrap(): void {
       if (s.snapshot !== p.snapshot) onSnapshot(p.snapshot, s.snapshot)
     })
 
-    if (!api.caps.pty) {
-      return () => {
-        unsubChime()
-        unsubscribe()
-        unsubProjects()
-        unsubBoards()
-        unsubSyncStatus()
-        unsubInset()
-      }
+    const historyRequested = new Set<string>()
+    const ensureHistory = (): void => {
+      const s = useStore.getState()
+      if (s.view.kind !== 'project') return
+      const tab = s.activeTabFor(s.view.projectKey)
+      if (tab === BOARD_TAB || historyRequested.has(tab)) return
+      const chat = s.chats.find((c) => c.chatId === tab)
+      if (!chat || !chat.started) return
+      historyRequested.add(tab)
+      s.loadHistory(tab).catch((error) => {
+        historyRequested.delete(tab)
+        console.error(error)
+      })
     }
-
-    const unsubExit = api.pty.onExit(({ ptyId, resumeFailed }) => {
-      useStore.getState().markExited(ptyId)
-      const terminal = useStore.getState().terminals[ptyId]
-      if (!resumeFailed || !terminal) return
-      void reloadTerminal(
-        terminal,
-        'fresh',
-        {
-          addTerminal: useStore.getState().addTerminal,
-          closeTerminal: useStore.getState().closeTerminal
-        },
-        { freshFallback: true }
-      ).catch((error) => console.error(error))
-    })
-    const unsubSession = api.pty.onSession(({ ptyId, sessionId }) => {
-      const state = useStore.getState()
-      state.setSession(ptyId, sessionId)
-
-      const cardId = state.takePendingCardLink(ptyId)
-      if (!cardId) return
-
-      const terminal = state.terminals[ptyId]
-      const project = state.projects.find((p) => p.projectKey === terminal?.projectKey)
-      const cwd = project?.basePath ?? ''
-      state.mutateBoard({ type: 'updateCard', id: cardId, patch: { link: { sessionId, cwd } } })
-    })
-
-    void api.pty
-      .getBindings()
-      .then((list) => list.forEach((b) => useStore.getState().setSession(b.ptyId, b.sessionId)))
-      .catch(() => {})
-
-    if (!restoreStarted) {
-      restoreStarted = true
-      void loadProjectsPromise
-        .then(async () => {
-          const { terminals: saved, activeSessionByProject } = await api.pty.loadPersisted()
-          const newPtyIdBySessionId: Record<string, string> = {}
-          for (const { projectKey, sessionId, title } of saved) {
-            try {
-              const { ptyId, resumed } = await api.pty.spawn({ projectKey, resumeSessionId: sessionId })
-              useStore.getState().addTerminal({
-                ptyId,
-                projectKey,
-                title,
-                status: 'running',
-                sessionId: resumed ? sessionId : undefined
-              })
-              newPtyIdBySessionId[sessionId] = ptyId
-            } catch {
-              // project gone / resume failed — skip this terminal
-            }
-          }
-          for (const [projectKey, sessionId] of Object.entries(activeSessionByProject)) {
-            const ptyId = newPtyIdBySessionId[sessionId]
-            if (ptyId) useStore.getState().setActiveTab(projectKey, ptyId)
-          }
-        })
-        .catch((error) => console.error(error))
-        .finally(() => {
-          restoreDone = true
-        })
-    }
-
-    const unsubPersist = useStore.subscribe((state, prev) => {
-      if (!restoreDone) return
-      if (state.terminals === prev.terminals && state.activeTabByProject === prev.activeTabByProject) {
-        return
-      }
-      api.pty.savePersisted(buildPersistedSnapshot(state.terminals, state.activeTabByProject))
-    })
+    const unsubHistory = useStore.subscribe(ensureHistory)
+    ensureHistory()
 
     return () => {
+      unsubHistory()
       unsubChime()
       unsubscribe()
       unsubProjects()
       unsubBoards()
       unsubSyncStatus()
+      unsubChats()
+      unsubItems()
       unsubInset()
-      unsubExit()
-      unsubSession()
-      unsubPersist()
     }
   }, [])
 }

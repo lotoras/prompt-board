@@ -3,10 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { KanbanCard, Project } from '../../src/shared/types'
 
-const { spawn, mutate } = vi.hoisted(() => ({ spawn: vi.fn(), mutate: vi.fn() }))
+const { create, setActive, mutate } = vi.hoisted(() => ({
+  create: vi.fn(),
+  setActive: vi.fn(),
+  mutate: vi.fn()
+}))
 
 vi.mock('../../src/renderer/src/lib/api', () => ({
-  api: { caps: { pty: true }, pty: { spawn }, kanban: { mutate } }
+  api: { caps: { pty: true }, chat: { create, setActive }, kanban: { mutate } }
 }))
 
 import { useStore } from '../../src/renderer/src/store'
@@ -39,22 +43,25 @@ function makeCard(overrides: Partial<KanbanCard> = {}): KanbanCard {
   }
 }
 
-function seedStore(card: KanbanCard, options?: { terminals?: Record<string, unknown> }): void {
+function seedStore(card: KanbanCard, options?: { chats?: Array<Record<string, unknown>> }): void {
   useStore.setState((state) => ({
     ...state,
     boards: { boards: [], cards: [card] },
     projects: [makeProject()],
-    terminals: (options?.terminals ?? {}) as typeof state.terminals,
-    activeTabByProject: {},
-    pendingCardLinks: {},
+    chats: (options?.chats ?? []) as typeof state.chats,
+    activeByProject: {},
     editingCardId: card.id
   }))
 }
 
 describe('CardEditorModal — Resume session button', () => {
   beforeEach(() => {
-    spawn.mockReset()
-    spawn.mockResolvedValue({ ptyId: 'p1' })
+    create.mockReset()
+    setActive.mockReset()
+    setActive.mockResolvedValue(undefined)
+    create.mockResolvedValue({
+      chat: { chatId: 'c1', projectKey: PROJECT_KEY, sessionId: 'sess-1', toggles: { codex: 'off', ultra: false }, started: true }
+    })
   })
 
   afterEach(() => {
@@ -79,41 +86,34 @@ describe('CardEditorModal — Resume session button', () => {
     expect(screen.queryByText('Resume session')).toBeNull()
   })
 
-  it('spawns a resumed terminal when there is no live matching terminal', async () => {
+  it('opens the linked session as a chat when there is no live matching chat', async () => {
     const card = makeCard({ link: { sessionId: 'sess-1', cwd: 'C:/x' } })
-    seedStore(card, { terminals: {} })
+    seedStore(card, { chats: [] })
 
     render(<CardEditorModal />)
 
     fireEvent.click(screen.getByText('Resume session'))
 
-    await waitFor(() => expect(spawn).toHaveBeenCalledTimes(1))
-    expect(spawn).toHaveBeenCalledWith({
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    expect(create).toHaveBeenCalledWith({
       projectKey: PROJECT_KEY,
-      resumeSessionId: 'sess-1'
+      resumeSessionId: 'sess-1',
+      title: 'Some card'
     })
   })
 
-  it('focuses an existing live terminal instead of spawning', async () => {
+  it('focuses an existing chat of the session instead of creating one', async () => {
     const card = makeCard({ link: { sessionId: 'sess-1', cwd: 'C:/x' } })
     seedStore(card, {
-      terminals: {
-        p9: {
-          ptyId: 'p9',
-          projectKey: PROJECT_KEY,
-          title: '',
-          status: 'running',
-          sessionId: 'sess-1'
-        }
-      }
+      chats: [{ chatId: 'c9', projectKey: PROJECT_KEY, sessionId: 'sess-1', title: 'Live' }]
     })
 
     render(<CardEditorModal />)
 
     fireEvent.click(screen.getByText('Resume session'))
 
-    await waitFor(() => expect(useStore.getState().activeTabByProject[PROJECT_KEY]).toBe('p9'))
-    expect(spawn).not.toHaveBeenCalled()
+    await waitFor(() => expect(useStore.getState().activeByProject[PROJECT_KEY]).toBe('c9'))
+    expect(create).not.toHaveBeenCalled()
   })
 })
 

@@ -1,7 +1,8 @@
 import chokidar, { type FSWatcher } from 'chokidar'
 import type { BrowserWindow } from 'electron'
-import { IPC_CHANNELS } from '../../shared/types'
+import { IPC_CHANNELS, type SessionsSnapshot } from '../../shared/types'
 import { reconcilePendingSpawns, refreshPtyBindings } from '../pty/reconcile'
+import type { StatusOverlayEntry } from './merge'
 import { sessionsDir } from './registry'
 import { buildSnapshot } from './snapshot'
 import { projectsDir } from './transcript'
@@ -16,12 +17,37 @@ let lastSnapshotJson = ''
 let running = false
 let rerun = false
 let forceNext = false
+let overlayProvider: (() => Map<string, StatusOverlayEntry>) | null = null
+const snapshotListeners = new Set<(snapshot: SessionsSnapshot) => void>()
+
+/** The chat service supplies live SDK-turn statuses that override the registry status. */
+export function setStatusOverlayProvider(provider: (() => Map<string, StatusOverlayEntry>) | null): void {
+  overlayProvider = provider
+}
+
+/** Called with every freshly built snapshot (even when unchanged). Returns an unsubscribe. */
+export function onSnapshot(listener: (snapshot: SessionsSnapshot) => void): () => void {
+  snapshotListeners.add(listener)
+  return () => snapshotListeners.delete(listener)
+}
+
+/** Snapshot with the current status overlay applied (what the watcher emits). */
+export function buildCurrentSnapshot(): Promise<SessionsSnapshot> {
+  return buildSnapshot(overlayProvider?.())
+}
 
 async function recomputeOnce(getWindow: () => BrowserWindow | null, force: boolean): Promise<void> {
   try {
-    const snapshot = await buildSnapshot()
+    const snapshot = await buildCurrentSnapshot()
     refreshPtyBindings(snapshot, getWindow)
     reconcilePendingSpawns(snapshot, getWindow)
+    for (const listener of snapshotListeners) {
+      try {
+        listener(snapshot)
+      } catch (err) {
+        console.error('snapshot listener failed', err)
+      }
+    }
     const json = JSON.stringify(snapshot)
     if (!force && json === lastSnapshotJson) return
     lastSnapshotJson = json

@@ -1,11 +1,10 @@
 import { useState } from 'react'
+import { RotateCcw, SquarePen, X } from 'lucide-react'
 import type { KanbanCard } from '../../../../shared/types'
 import { GLOBAL_BOARD_PROJECT_KEY } from '../../../../shared/types'
 import { useStore } from '../../store'
-import { api } from '../../lib/api'
 import { TagInput } from './TagInput'
 import { canStartInClaude, resumeSession, startInClaude } from './startInClaude'
-import './kanban.css'
 
 interface CardEditorFormProps {
   card: KanbanCard
@@ -15,12 +14,9 @@ interface CardEditorFormProps {
 function CardEditorForm({ card, onClose }: CardEditorFormProps): React.JSX.Element {
   const projects = useStore((s) => s.projects)
   const mutateBoard = useStore((s) => s.mutateBoard)
-  const addTerminal = useStore((s) => s.addTerminal)
+  const chats = useStore((s) => s.chats)
   const setActiveTab = useStore((s) => s.setActiveTab)
-  const setPendingCardLink = useStore((s) => s.setPendingCardLink)
   const setView = useStore((s) => s.setView)
-  const terminals = useStore((s) => s.terminals)
-  const capsPty = api.caps.pty
 
   const [title, setTitle] = useState(card.title)
   const [body, setBody] = useState(card.body)
@@ -30,6 +26,7 @@ function CardEditorForm({ card, onClose }: CardEditorFormProps): React.JSX.Eleme
 
   const targetProject = projects.find((p) => p.projectKey === cardProjectKey)
   const canStart = canStartInClaude(targetProject)
+  const startTitle = !targetProject ? 'Assign a project with a base path to start a chat' : undefined
 
   const handleSave = async (): Promise<void> => {
     await mutateBoard({
@@ -47,113 +44,132 @@ function CardEditorForm({ card, onClose }: CardEditorFormProps): React.JSX.Eleme
 
   const handleStart = async (): Promise<void> => {
     if (!targetProject) return
-    await startInClaude(card, targetProject, {
-      setPendingCardLink,
-      addTerminal,
-      setActiveTab,
-      setView
-    })
+    await startInClaude(card, targetProject)
     onClose()
   }
 
   const handleResume = async (): Promise<void> => {
     if (!targetProject || !card.link) return
-    const live = Object.values(terminals).find(
-      (t) => t.sessionId === card.link!.sessionId && t.status === 'running'
-    )
+    const live = chats.find((c) => c.sessionId === card.link!.sessionId)
     if (live) {
-      setActiveTab(live.projectKey, live.ptyId)
-      setView({ kind: 'project', projectKey: live.projectKey, tab: 'terminals' })
+      setActiveTab(live.projectKey, live.chatId)
+      setView({ kind: 'project', projectKey: live.projectKey })
     } else {
-      await resumeSession(card, targetProject, { setPendingCardLink, addTerminal, setActiveTab, setView })
+      await resumeSession(card, targetProject)
     }
     onClose()
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Edit card</h2>
-
-        <label className="modal__field">
-          Title
-          <input value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
-        </label>
-
-        <label className="modal__field">
-          Body
-          <textarea rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
-        </label>
-
-        <label className="modal__field">
-          Tags
-          <TagInput tags={tags} onChange={setTags} />
-        </label>
-
-        <label className="modal__field">
-          Due date
-          <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-        </label>
-
-        {card.projectKey === GLOBAL_BOARD_PROJECT_KEY ||
-        cardProjectKey === GLOBAL_BOARD_PROJECT_KEY ? (
-          <label className="modal__field">
-            Project
-            <select value={cardProjectKey} onChange={(e) => setCardProjectKey(e.target.value)}>
-              <option value={GLOBAL_BOARD_PROJECT_KEY}>Global (unassigned)</option>
-              {projects.map((p) => (
-                <option key={p.projectKey} value={p.projectKey}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-
-        {card.link && <span className="tag-chip session-chip">Linked session: {card.link.sessionId}</span>}
-
-        {card.link && (
-          <button
-            type="button"
-            className="modal__start-btn"
-            disabled={!canStart}
-            onClick={handleResume}
-            title={
-              !capsPty
-                ? 'Terminals are not available yet (Phase 2)'
-                : !targetProject
-                  ? 'Assign a project with a base path to start a terminal'
-                  : undefined
-            }
-          >
-            Resume session
+    <div className="modal-bg" onClick={onClose}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Card"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="modal-head">
+          <h2>Edit card</h2>
+          <button type="button" className="ctl icon" aria-label="Close" onClick={onClose}>
+            <X className="i" strokeWidth={1.8} />
           </button>
-        )}
+        </div>
 
-        <button
-          type="button"
-          className="modal__start-btn"
-          disabled={!canStart}
-          onClick={handleStart}
-          title={
-            !capsPty
-              ? 'Terminals are not available yet (Phase 2)'
-              : !targetProject
-                ? 'Assign a project with a base path to start a terminal'
-                : undefined
-          }
-        >
-          Start in Claude
-        </button>
+        <div className="modal-body">
+          <div className="field">
+            <label htmlFor="card-title">Title</label>
+            <input
+              id="card-title"
+              value={title}
+              placeholder="What needs doing?"
+              onChange={(e) => setTitle(e.target.value)}
+              autoFocus
+            />
+          </div>
 
-        <div className="modal__actions">
-          <button type="button" className="modal__delete" onClick={handleDelete}>
+          <div className="field">
+            <label htmlFor="card-body">Body</label>
+            <textarea
+              id="card-body"
+              value={body}
+              placeholder="Details. Start in Claude uses these as the prompt."
+              onChange={(e) => setBody(e.target.value)}
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="card-tags">Tags</label>
+            <TagInput id="card-tags" tags={tags} onChange={setTags} />
+          </div>
+
+          <div className="field-row">
+            <div className="field">
+              <label htmlFor="card-due">Due date</label>
+              <input
+                id="card-due"
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+              />
+            </div>
+
+            {card.projectKey === GLOBAL_BOARD_PROJECT_KEY ||
+            cardProjectKey === GLOBAL_BOARD_PROJECT_KEY ? (
+              <div className="field">
+                <label htmlFor="card-project">Project</label>
+                <select
+                  id="card-project"
+                  value={cardProjectKey}
+                  onChange={(e) => setCardProjectKey(e.target.value)}
+                >
+                  <option value={GLOBAL_BOARD_PROJECT_KEY}>Global (unassigned)</option>
+                  {projects.map((p) => (
+                    <option key={p.projectKey} value={p.projectKey}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div />
+            )}
+          </div>
+
+          {card.link && <span className="linkchip">Linked session: {card.link.sessionId}</span>}
+        </div>
+
+        <div className="modal-foot">
+          <button type="button" className="btn danger" onClick={handleDelete}>
             Delete
           </button>
-          <button type="button" onClick={onClose}>
+          <span className="spacer" />
+          {card.link && (
+            <button
+              type="button"
+              className="btn outline"
+              disabled={!canStart}
+              onClick={handleResume}
+              title={startTitle}
+            >
+              <RotateCcw className="i sm" strokeWidth={1.8} />
+              Resume session
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn outline"
+            disabled={!canStart}
+            onClick={handleStart}
+            title={startTitle}
+          >
+            <SquarePen className="i sm" strokeWidth={1.8} />
+            Start in Claude
+          </button>
+          <button type="button" className="btn quiet" onClick={onClose}>
             Cancel
           </button>
-          <button type="button" onClick={handleSave}>
+          <button type="button" className="btn primary" onClick={handleSave}>
             Save
           </button>
         </div>

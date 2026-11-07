@@ -1,12 +1,19 @@
 import { BrowserWindow, clipboard, dialog, ipcMain } from 'electron'
 import { IPC_CHANNELS } from '../shared/types'
 import type {
+  ChatCreateInput,
+  ChatPatch,
+  ChatSendInput,
   KanbanMutation,
+  PlanDecision,
   PersistedTerminalsState,
   ProjectInput,
   PtySpawnInput,
   SyncConfigureInput
 } from '../shared/types'
+import { describe, pick, saveImage } from './chat/attachments'
+import { chatService } from './chat/service'
+import { gitInfo, listBranches } from './git/git'
 import { mutateKanban, getBoards } from './kanban/store'
 import { createProject, deleteProject, listProjects, updateProject } from './projects/store'
 import { attachPty, killPty, resizePty, spawnPty, writePty } from './pty/manager'
@@ -14,15 +21,14 @@ import { loadPersisted, savePersisted } from './pty/persistence'
 import { listPtyBindings } from './pty/reconcile'
 import { restoreLog } from './lib/restoreLog'
 import { acknowledgeSession, unacknowledgeSession } from './sessions/acks'
-import { buildSnapshot } from './sessions/snapshot'
-import { refreshSnapshotNow, triggerSnapshotRefresh } from './sessions/watcher'
+import { buildCurrentSnapshot, refreshSnapshotNow, triggerSnapshotRefresh } from './sessions/watcher'
 import { configure, getConfigView, getSyncStatus, signOut } from './sync/engine'
 import { computeBottomInset } from './window/inset'
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(IPC_CHANNELS.sessions.list, async () => {
     try {
-      return await buildSnapshot()
+      return await buildCurrentSnapshot()
     } catch (err) {
       console.error('sessions:list failed', err)
       return { projects: [] }
@@ -153,4 +159,47 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     const w = getWindow()
     return w ? computeBottomInset(w) : 0
   })
+
+  ipcMain.handle(IPC_CHANNELS.chat.list, () => chatService.list())
+  ipcMain.handle(IPC_CHANNELS.chat.create, (_event, input: ChatCreateInput) =>
+    chatService.create(input)
+  )
+  ipcMain.handle(IPC_CHANNELS.chat.update, (_event, chatId: string, patch: ChatPatch) =>
+    chatService.update(chatId, patch)
+  )
+  ipcMain.handle(IPC_CHANNELS.chat.send, (_event, input: ChatSendInput) => chatService.send(input))
+  ipcMain.handle(IPC_CHANNELS.chat.interrupt, (_event, chatId: string) =>
+    chatService.interrupt(chatId)
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.chat.answer,
+    (_event, chatId: string, toolUseId: string, answers: Record<string, string> | null) =>
+      chatService.answer(chatId, toolUseId, answers)
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.chat.decidePlan,
+    (_event, chatId: string, toolUseId: string, decision: PlanDecision) =>
+      chatService.decidePlan(chatId, toolUseId, decision)
+  )
+  ipcMain.handle(IPC_CHANNELS.chat.close, (_event, chatId: string) => chatService.close(chatId))
+  ipcMain.handle(IPC_CHANNELS.chat.history, (_event, chatId: string) => chatService.history(chatId))
+  ipcMain.handle(IPC_CHANNELS.chat.setActive, (_event, projectKey: string, tab: string) =>
+    chatService.setActive(projectKey, tab)
+  )
+  ipcMain.handle(IPC_CHANNELS.chat.openInTui, (_event, chatId: string) =>
+    chatService.openInTui(chatId)
+  )
+
+  ipcMain.handle(IPC_CHANNELS.git.info, (_event, cwd: string) => gitInfo(cwd))
+  ipcMain.handle(IPC_CHANNELS.git.branches, async (_event, projectKey: string) => {
+    const project = (await listProjects()).find((p) => p.projectKey === projectKey)
+    return project?.basePath ? listBranches(project.basePath) : []
+  })
+
+  ipcMain.handle(IPC_CHANNELS.attachments.pick, () => pick(getWindow))
+  ipcMain.handle(IPC_CHANNELS.attachments.describe, (_event, paths: string[]) => describe(paths))
+  ipcMain.handle(
+    IPC_CHANNELS.attachments.saveImage,
+    (_event, dataUrl: string, name?: string) => saveImage(dataUrl, name)
+  )
 }

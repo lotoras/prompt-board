@@ -2,7 +2,7 @@ import { canAcknowledge, type SessionInfo, type SessionsSnapshot } from '../../s
 import { listProjects } from '../projects/store'
 import { getAcks } from './acks'
 import { filterAliveSessions } from './liveness'
-import { mergeSessions } from './merge'
+import { applyStatusOverlay, mergeSessions, type StatusOverlayEntry } from './merge'
 import { readRegistry } from './registry'
 import { locateTranscript, tailTranscript } from './transcript'
 
@@ -23,7 +23,9 @@ async function enrichSession(session: SessionInfo): Promise<SessionInfo> {
  * liveness (PID-reuse guard), enrich with transcript data, and merge with
  * manually configured projects.
  */
-export async function buildSnapshot(): Promise<SessionsSnapshot> {
+export async function buildSnapshot(
+  overlay?: Map<string, StatusOverlayEntry>
+): Promise<SessionsSnapshot> {
   const [registry, manualProjects] = await Promise.all([readRegistry(), listProjects()])
   const alive = await filterAliveSessions(registry)
   const enriched = await Promise.all(
@@ -36,8 +38,9 @@ export async function buildSnapshot(): Promise<SessionsSnapshot> {
       }
     })
   )
+  const overlaid = overlay ? applyStatusOverlay(enriched, overlay) : enriched
   const acks = await getAcks()
-  const withAck = enriched.map((s) => ({
+  const withAck = overlaid.map((s) => ({
     ...s,
     acknowledged: canAcknowledge(s.status) && acks[s.sessionId] === s.statusUpdatedAt
   }))

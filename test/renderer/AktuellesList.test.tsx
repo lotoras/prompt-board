@@ -58,9 +58,6 @@ function seedStore(cards: KanbanCard[]): void {
     ...state,
     boards: { boards: [GLOBAL_BOARD], cards },
     projects: [makeProject()],
-    terminals: {},
-    activeTabByProject: {},
-    pendingCardLinks: {},
     editingCardId: null
   }))
 }

@@ -1,9 +1,9 @@
 import { useState } from 'react'
+import { X } from 'lucide-react'
 import { useStore } from '../../store'
 import { api } from '../../lib/api'
 import type { ProjectModalState } from '../../store/uiSlice'
 import type { Project } from '../../../../shared/types'
-import './projects.css'
 
 interface ProjectEditorFormProps {
   modal: ProjectModalState
@@ -59,39 +59,64 @@ function ProjectEditorForm({
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
-        <h2>
-          {modal.mode === 'create' && 'New project'}
-          {modal.mode === 'edit' && 'Edit project'}
-          {modal.mode === 'promote' && 'Configure project'}
-        </h2>
+    <div className="modal-bg" onClick={onClose}>
+      <form
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={handleSubmit}
+      >
+        <div className="modal-head">
+          <h2>
+            {modal.mode === 'create' && 'New project'}
+            {modal.mode === 'edit' && 'Edit project'}
+            {modal.mode === 'promote' && 'Configure project'}
+          </h2>
+          <button type="button" className="ctl icon" aria-label="Close" onClick={onClose}>
+            <X className="i" strokeWidth={1.8} />
+          </button>
+        </div>
 
-        <label className="modal__field">
-          Name
-          <input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-        </label>
-
-        <label className="modal__field">
-          Base path
-          <div className="modal__path-row">
-            <input value={basePath} onChange={(e) => setBasePath(e.target.value)} />
-            <button type="button" onClick={handleBrowse}>
-              Browse…
-            </button>
+        <div className="modal-body">
+          <div className="field">
+            <label htmlFor="project-name">Name</label>
+            <input
+              id="project-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
+            />
           </div>
-        </label>
 
-        <div className="modal__actions">
+          <div className="field">
+            <label htmlFor="project-path">Base path</label>
+            <div className="path-row">
+              <input
+                id="project-path"
+                value={basePath}
+                onChange={(e) => setBasePath(e.target.value)}
+              />
+              <button type="button" className="btn outline" onClick={handleBrowse}>
+                Browse…
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="modal-foot">
           {modal.mode === 'edit' && (
-            <button type="button" className="modal__delete" onClick={handleDelete}>
+            <button type="button" className="btn danger" onClick={handleDelete}>
               Delete
             </button>
           )}
-          <button type="button" onClick={onClose}>
+          <span className="spacer" />
+          <button type="button" className="btn quiet" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit">Save</button>
+          <button type="submit" className="btn primary">
+            Save
+          </button>
         </div>
       </form>
     </div>

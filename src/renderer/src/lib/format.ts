@@ -44,3 +44,18 @@ export function formatDueDate(dueDate: string, today: string): string {
   if (n < 0) return `${-n}d overdue`
   return localDateFromISO(dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
+
+export function formatFileSize(bytes: number): string {
+  if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(1)} MB`
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`
+}
+
+export function formatDuration(ms: number): string {
+  const totalSec = Math.max(0, Math.round(ms / 1000))
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = totalSec % 60
+  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`
+  if (m > 0) return `${m}m ${String(s).padStart(2, '0')}s`
+  return `${s}s`
+}

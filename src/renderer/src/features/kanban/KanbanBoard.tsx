@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Plus } from 'lucide-react'
 import {
   DndContext,
   DragOverlay,
@@ -15,9 +16,7 @@ import { useStore } from '../../store'
 import { between } from '../../lib/fractionalIndex'
 import { Column } from './Column'
 import { CardItemOverlay } from './CardItem'
-import { CardEditorModal } from './CardEditorModal'
 import { canStartInClaude, startInClaude } from './startInClaude'
-import './kanban.css'
 
 const START_CODING_COLUMN_ID = 'start-coding'
 const DOING_COLUMN_ID = 'doing'
@@ -45,10 +44,8 @@ export function KanbanBoard({ projectKey }: KanbanBoardProps): React.JSX.Element
   const projects = useStore((s) => s.projects)
   const mutateBoard = useStore((s) => s.mutateBoard)
   const setEditingCardId = useStore((s) => s.setEditingCardId)
-  const setPendingCardLink = useStore((s) => s.setPendingCardLink)
-  const addTerminal = useStore((s) => s.addTerminal)
-  const setActiveTab = useStore((s) => s.setActiveTab)
-  const setView = useStore((s) => s.setView)
+  const globalBoardMode = useStore((s) => s.globalBoardMode)
+  const setGlobalBoardMode = useStore((s) => s.setGlobalBoardMode)
 
   const isGlobal = projectKey === GLOBAL_BOARD_PROJECT_KEY
   const globalBoard = boards.find((b) => b.projectKey === GLOBAL_BOARD_PROJECT_KEY)
@@ -119,12 +116,7 @@ export function KanbanBoard({ projectKey }: KanbanBoardProps): React.JSX.Element
 
       void (async () => {
         try {
-          await startInClaude(activeCard, project!, {
-            setPendingCardLink,
-            addTerminal,
-            setActiveTab,
-            setView
-          })
+          await startInClaude(activeCard, project!)
           mutateBoard({ type: 'moveCard', id: activeCard.id, columnId: DOING_COLUMN_ID, order })
         } catch (err) {
           console.error('Failed to start coding for card', activeCard.id, err)
@@ -176,11 +168,43 @@ export function KanbanBoard({ projectKey }: KanbanBoardProps): React.JSX.Element
   }
 
   if (!globalBoard) {
-    return <div className="kanban-board__empty">Loading board…</div>
+    return <div className="empty-note">Loading board…</div>
   }
 
   return (
     <>
+      <div className="board-head">
+        <h2>{isGlobal ? 'Global board' : 'Board'}</h2>
+        <span className="sub">
+          {isGlobal ? 'All projects' : (projectsByKey.get(projectKey)?.name ?? projectKey)}
+        </span>
+        {isGlobal && (
+          <span className="view-switch">
+            <button
+              type="button"
+              className={globalBoardMode === 'board' ? 'on' : ''}
+              onClick={() => setGlobalBoardMode('board')}
+            >
+              Board
+            </button>
+            <button
+              type="button"
+              className={globalBoardMode === 'aktuelles' ? 'on' : ''}
+              onClick={() => setGlobalBoardMode('aktuelles')}
+            >
+              Aktuelles
+            </button>
+          </span>
+        )}
+        <span className="head-spacer" />
+        <button type="button" className="ghost-btn" onClick={() => {
+            const target = columns.find((c) => c.id === 'todo') ?? columns[0]
+            if (target) handleAddCard(target.id)
+          }}>
+          <Plus className="i sm" strokeWidth={1.8} />
+          <span className="lbl">New card</span>
+        </button>
+      </div>
       <DndContext
         sensors={sensors}
         collisionDetection={collisionStrategy}
@@ -188,7 +212,7 @@ export function KanbanBoard({ projectKey }: KanbanBoardProps): React.JSX.Element
         onDragEnd={handleDragEnd}
         onDragCancel={() => setActiveId(null)}
       >
-        <div className="kanban-board">
+        <div className="lanes">
           {columns.map((column) => (
             <Column
               key={column.id}
@@ -211,7 +235,6 @@ export function KanbanBoard({ projectKey }: KanbanBoardProps): React.JSX.Element
           ) : null}
         </DragOverlay>
       </DndContext>
-      <CardEditorModal />
     </>
   )
 }
