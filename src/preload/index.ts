@@ -2,6 +2,12 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import {
   IPC_CHANNELS,
   type Api,
+  type ChatCreateInput,
+  type ChatItemsEvent,
+  type ChatMeta,
+  type ChatPatch,
+  type ChatSendInput,
+  type PlanDecision,
   type KanbanMutation,
   type KanbanState,
   type PersistedTerminalsState,
@@ -106,6 +112,43 @@ const api: Api = {
       ipcRenderer.on(IPC_CHANNELS.window.insetChanged, listener)
       return () => ipcRenderer.removeListener(IPC_CHANNELS.window.insetChanged, listener)
     }
+  },
+  chat: {
+    list: () => ipcRenderer.invoke(IPC_CHANNELS.chat.list),
+    create: (input: ChatCreateInput) => ipcRenderer.invoke(IPC_CHANNELS.chat.create, input),
+    update: (chatId: string, patch: ChatPatch) =>
+      ipcRenderer.invoke(IPC_CHANNELS.chat.update, chatId, patch),
+    send: (input: ChatSendInput) => ipcRenderer.invoke(IPC_CHANNELS.chat.send, input),
+    interrupt: (chatId: string) => ipcRenderer.invoke(IPC_CHANNELS.chat.interrupt, chatId),
+    answer: (chatId: string, toolUseId: string, answers: Record<string, string> | null) =>
+      ipcRenderer.invoke(IPC_CHANNELS.chat.answer, chatId, toolUseId, answers),
+    decidePlan: (chatId: string, toolUseId: string, decision: PlanDecision) =>
+      ipcRenderer.invoke(IPC_CHANNELS.chat.decidePlan, chatId, toolUseId, decision),
+    close: (chatId: string) => ipcRenderer.invoke(IPC_CHANNELS.chat.close, chatId),
+    history: (chatId: string) => ipcRenderer.invoke(IPC_CHANNELS.chat.history, chatId),
+    setActive: (projectKey: string, tab: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.chat.setActive, projectKey, tab),
+    openInTui: (chatId: string) => ipcRenderer.invoke(IPC_CHANNELS.chat.openInTui, chatId),
+    onChanged: (cb: (chats: ChatMeta[]) => void) => {
+      const listener = (_event: unknown, chats: ChatMeta[]): void => cb(chats)
+      ipcRenderer.on(IPC_CHANNELS.chat.changed, listener)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.chat.changed, listener)
+    },
+    onItems: (cb: (event: ChatItemsEvent) => void) => {
+      const listener = (_event: unknown, payload: ChatItemsEvent): void => cb(payload)
+      ipcRenderer.on(IPC_CHANNELS.chat.items, listener)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.chat.items, listener)
+    }
+  },
+  git: {
+    info: (cwd: string) => ipcRenderer.invoke(IPC_CHANNELS.git.info, cwd),
+    branches: (projectKey: string) => ipcRenderer.invoke(IPC_CHANNELS.git.branches, projectKey)
+  },
+  attachments: {
+    pick: () => ipcRenderer.invoke(IPC_CHANNELS.attachments.pick),
+    describe: (paths: string[]) => ipcRenderer.invoke(IPC_CHANNELS.attachments.describe, paths),
+    saveImage: (dataUrl: string, name?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.attachments.saveImage, dataUrl, name)
   }
 }
 

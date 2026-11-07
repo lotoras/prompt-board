@@ -186,6 +186,10 @@ export interface PtySpawnInput {
   initialQuery?: string
   resumeSessionId?: string
   freshFallback?: boolean // caller knows the previous session is unresumable; print the notice
+  /** Working dir: the project basePath (default) or a path inside `<basePath>/.claude/worktrees/`. */
+  cwd?: string
+  /** `claude` (default) runs clauded; `shell` opens a plain PowerShell (terminal drawer). */
+  mode?: 'claude' | 'shell'
 }
 
 export interface PtySpawnResult {
@@ -219,6 +223,241 @@ export interface PersistedTerminal {
 export interface PersistedTerminalsState {
   terminals: PersistedTerminal[] // in tab order
   activeSessionByProject: Record<string, string> // projectKey -> active sessionId
+}
+
+// ---------------------------------------------------------------------------
+// Chats (Agent-SDK driven conversations — the T3-style chat view)
+// ---------------------------------------------------------------------------
+
+export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export type CodexLevel = 'off' | 'tests' | 'full'
+
+/** Per-chat composer switches; sticky per chat, defaults remembered per project. */
+export interface ChatToggles {
+  codex: CodexLevel
+  ultra: boolean
+}
+
+/** New-chat workspace choice, applied once before the first send. */
+export interface WorkspacePlan {
+  newWorktree: boolean
+  newBranch: boolean
+  /** Required when `newBranch`; e.g. `pb/context-meter`. */
+  branchName?: string
+  /** Branch/commit to start from; defaults to the repo's current branch. */
+  baseBranch?: string
+}
+
+/**
+ * - `sdk`: driven by this app through the Agent SDK (composer enabled)
+ * - `external`: a live session started outside the app (read-only, live-tailed)
+ * - `tui`: this chat is temporarily continued in the terminal drawer (`clauded --resume`)
+ */
+export type ChatMode = 'sdk' | 'external' | 'tui'
+
+export interface ChatMeta {
+  /** Stable tab id. Own chats: a UUID. External sessions: `ext:<sessionId>`. */
+  chatId: string
+  projectKey: string
+  /** Claude session id. Pre-assigned for new chats, so it is known before the first send. */
+  sessionId: string
+  title: string
+  /** Absolute working directory: the project basePath, or the worktree path. */
+  cwd: string
+  branch?: string
+  /** Worktree path relative to the repo root (e.g. `.claude/worktrees/context-meter`). */
+  worktreePath?: string
+  /** Model alias (`opus`, `fable`, `sonnet`, `haiku`) or a full model id. */
+  model: string
+  effort: EffortLevel
+  toggles: ChatToggles
+  contextTokens?: number
+  contextWindow?: number
+  totalTokens?: number
+  status: SessionStatus
+  waitingFor?: string
+  acknowledged?: boolean
+  statusUpdatedAt?: number
+  mode: ChatMode
+  /** False while the chat is a draft (no session exists yet). */
+  started: boolean
+  /** Kanban card this chat was started from (linked on the first send). */
+  cardId?: string
+  createdAt: number
+  updatedAt: number
+}
+
+/** What `chats.json` stores per own chat (live fields are recomputed). */
+export type PersistedChat = Omit<
+  ChatMeta,
+  | 'status'
+  | 'waitingFor'
+  | 'acknowledged'
+  | 'statusUpdatedAt'
+  | 'mode'
+  | 'contextTokens'
+  | 'contextWindow'
+  | 'totalTokens'
+>
+
+export interface PersistedChatsState {
+  /** Own chats in tab order (all projects). */
+  chats: PersistedChat[]
+  /** projectKey -> active tab: a chatId, or `'board'` for the pinned Board tab. */
+  activeByProject: Record<string, string>
+}
+
+export type ToolStatus = 'running' | 'ok' | 'error'
+
+export interface DiffLine {
+  type: 'ctx' | 'add' | 'del'
+  oldNo?: number
+  newNo?: number
+  text: string
+}
+
+export interface DiffBlock {
+  file: string
+  added: number
+  removed: number
+  lines: DiffLine[]
+}
+
+export interface AskQuestionOption {
+  label: string
+  description: string
+  preview?: string
+}
+
+export interface AskQuestion {
+  question: string
+  header: string
+  multiSelect: boolean
+  options: AskQuestionOption[]
+}
+
+export interface ChatAttachment {
+  /** Absolute path on disk (pasted images are saved by main first). */
+  path: string
+  name: string
+  kind: 'image' | 'file'
+  size: number
+  /** Small data: URL for image chips; only set by main. */
+  thumbDataUrl?: string
+}
+
+/** Composer switches recovered from a sent prompt (see `parseDirectives`). */
+export interface ParsedDirectives {
+  codex: CodexLevel
+  ultra: boolean
+}
+
+export type ChatItem =
+  | {
+      kind: 'user'
+      id: string
+      /** The text the user typed, with the directive trailer and file list removed. */
+      text: string
+      directives: ParsedDirectives
+      attachments: { name: string; kind: 'image' | 'file' }[]
+      ts?: number
+    }
+  | { kind: 'assistant'; id: string; markdown: string; streaming?: boolean }
+  | { kind: 'thinking'; id: string; text: string }
+  | {
+      kind: 'tool'
+      /** The tool_use id. */
+      id: string
+      name: string
+      /** One-line target, e.g. a file path, a command or a search pattern. */
+      summary: string
+      status: ToolStatus
+      /** Short result line, e.g. `312 passed`, `9 results`, or the error text. */
+      result?: string
+      diff?: DiffBlock
+    }
+  | {
+      kind: 'agent'
+      /** The Agent/Task tool_use id. */
+      id: string
+      agentType: string
+      description: string
+      status: ToolStatus
+      result?: string
+      toolCount?: number
+    }
+  | {
+      kind: 'question'
+      /** The AskUserQuestion tool_use id. */
+      id: string
+      questions: AskQuestion[]
+      state: 'pending' | 'answered' | 'skipped'
+      answers?: Record<string, string>
+    }
+  | {
+      kind: 'plan'
+      /** The ExitPlanMode tool_use id. */
+      id: string
+      plan: string
+      state: 'pending' | 'approved' | 'rejected'
+    }
+  | { kind: 'system'; id: string; text: string; tone?: 'info' | 'error' }
+  | { kind: 'command'; id: string; name: string; args: string }
+  | { kind: 'turn-end'; id: string; durationMs: number }
+
+export interface ChatItemsEvent {
+  chatId: string
+  /** Replace the whole list (history load). */
+  reset?: ChatItem[]
+  /** Insert or replace by `id`, keeping first-seen order. */
+  upsert?: ChatItem[]
+  remove?: string[]
+}
+
+export interface ChatCreateInput {
+  projectKey: string
+  /** Pre-fills the composer (not sent), e.g. `/cc-enhance <card body>`. */
+  draftText?: string
+  cardId?: string
+  /** Open an existing session (e.g. a card's linked session) as a chat. */
+  resumeSessionId?: string
+  title?: string
+}
+
+export interface ChatCreateResult {
+  chat: ChatMeta
+  draftText?: string
+}
+
+export type ChatPatch = Partial<Pick<ChatMeta, 'model' | 'effort' | 'toggles' | 'title'>>
+
+export interface ChatSendInput {
+  chatId: string
+  text: string
+  attachments: ChatAttachment[]
+  toggles: ChatToggles
+  /** Only honoured on the first send of a draft. */
+  workspace?: WorkspacePlan
+}
+
+export type PlanDecision = { approve: true } | { approve: false; feedback: string }
+
+export interface GitInfo {
+  isRepo: boolean
+  branch?: string
+  detached?: boolean
+  isWorktree: boolean
+  /** Absolute path of the main repository root. */
+  repoRoot?: string
+  /** Worktree path relative to `repoRoot`, when `isWorktree`. */
+  worktreeRel?: string
+  dirty?: boolean
+}
+
+export interface ModelOption {
+  id: string
+  name: string
+  description: string
 }
 
 // ---------------------------------------------------------------------------
@@ -272,6 +511,30 @@ export const IPC_CHANNELS = {
   window: {
     getInset: 'window:getInset',
     insetChanged: 'window:insetChanged'
+  },
+  chat: {
+    list: 'chat:list',
+    create: 'chat:create',
+    update: 'chat:update',
+    send: 'chat:send',
+    interrupt: 'chat:interrupt',
+    answer: 'chat:answer',
+    decidePlan: 'chat:decidePlan',
+    close: 'chat:close',
+    history: 'chat:history',
+    setActive: 'chat:setActive',
+    openInTui: 'chat:openInTui',
+    changed: 'chat:changed',
+    items: 'chat:items'
+  },
+  git: {
+    info: 'git:info',
+    branches: 'git:branches'
+  },
+  attachments: {
+    pick: 'attachments:pick',
+    describe: 'attachments:describe',
+    saveImage: 'attachments:saveImage'
   }
 } as const
 
@@ -330,5 +593,35 @@ export interface Api {
   window: {
     getInset(): Promise<number>
     onInsetChanged(cb: (inset: number) => void): () => void
+  }
+  chat: {
+    /** Own chats (tab order) plus live external sessions, and the active tab per project. */
+    list(): Promise<{ chats: ChatMeta[]; activeByProject: Record<string, string> }>
+    create(input: ChatCreateInput): Promise<ChatCreateResult>
+    update(chatId: string, patch: ChatPatch): Promise<ChatMeta>
+    send(input: ChatSendInput): Promise<void>
+    interrupt(chatId: string): Promise<void>
+    /** `answers` null = the user skipped the question. */
+    answer(chatId: string, toolUseId: string, answers: Record<string, string> | null): Promise<void>
+    decidePlan(chatId: string, toolUseId: string, decision: PlanDecision): Promise<void>
+    close(chatId: string): Promise<void>
+    history(chatId: string): Promise<ChatItem[]>
+    setActive(projectKey: string, tab: string): Promise<void>
+    openInTui(chatId: string): Promise<{ ptyId: string }>
+    onChanged(cb: (chats: ChatMeta[]) => void): () => void
+    onItems(cb: (event: ChatItemsEvent) => void): () => void
+  }
+  git: {
+    info(cwd: string): Promise<GitInfo>
+    /** Local branches of the project's repo, current branch first. */
+    branches(projectKey: string): Promise<string[]>
+  }
+  attachments: {
+    /** Opens the native file picker (multi-select). */
+    pick(): Promise<ChatAttachment[]>
+    /** Size, kind and thumbnail for dropped paths. */
+    describe(paths: string[]): Promise<ChatAttachment[]>
+    /** Saves a pasted image (data: URL) under userData and returns it as an attachment. */
+    saveImage(dataUrl: string, name?: string): Promise<ChatAttachment>
   }
 }
