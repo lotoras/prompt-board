@@ -231,6 +231,11 @@ export interface PersistedTerminalsState {
 
 export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 export type CodexLevel = 'off' | 'tests' | 'full'
+/**
+ * Claude Code permission modes offered in the composer: `bypassPermissions` = "Full access"
+ * (today's clauded behaviour), `acceptEdits` = "Accept edits", `default` = "Ask", `plan` = "Plan".
+ */
+export type PermissionModeId = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
 
 /** Per-chat composer switches; sticky per chat, defaults remembered per project. */
 export interface ChatToggles {
@@ -271,6 +276,7 @@ export interface ChatMeta {
   model: string
   effort: EffortLevel
   toggles: ChatToggles
+  permissionMode: PermissionModeId
   contextTokens?: number
   contextWindow?: number
   totalTokens?: number
@@ -361,6 +367,11 @@ export type ChatItem =
       directives: ParsedDirectives
       attachments: { name: string; kind: 'image' | 'file' }[]
       ts?: number
+      /**
+       * Transcript `parentUuid` of this prompt: the chain entry an edit forks from
+       * (`resumeSessionAt`). `null` = first message of the session; absent = not from a transcript.
+       */
+      parentUuid?: string | null
     }
   | { kind: 'assistant'; id: string; markdown: string; streaming?: boolean }
   | { kind: 'thinking'; id: string; text: string }
@@ -401,6 +412,19 @@ export type ChatItem =
       plan: string
       state: 'pending' | 'approved' | 'rejected'
     }
+  | {
+      kind: 'permission'
+      /** The tool_use id awaiting permission. */
+      id: string
+      toolName: string
+      /** Prompt sentence, e.g. "Claude wants to run npm test" (the SDK's `title` when given). */
+      title: string
+      description?: string
+      summary: string
+      /** Offer "Allow for this chat" (the SDK sent suggestions and did not suppress the rule). */
+      canAlwaysAllow: boolean
+      state: 'pending' | 'allowed' | 'denied'
+    }
   | { kind: 'system'; id: string; text: string; tone?: 'info' | 'error' }
   | { kind: 'command'; id: string; name: string; args: string }
   | { kind: 'turn-end'; id: string; durationMs: number }
@@ -429,7 +453,9 @@ export interface ChatCreateResult {
   draftText?: string
 }
 
-export type ChatPatch = Partial<Pick<ChatMeta, 'model' | 'effort' | 'toggles' | 'title'>>
+export type ChatPatch = Partial<
+  Pick<ChatMeta, 'model' | 'effort' | 'toggles' | 'title' | 'permissionMode'>
+>
 
 export interface ChatSendInput {
   chatId: string
@@ -438,9 +464,72 @@ export interface ChatSendInput {
   toggles: ChatToggles
   /** Only honoured on the first send of a draft. */
   workspace?: WorkspacePlan
+  /** "Stop and send": interrupt the running turn first, then send. */
+  interrupt?: boolean
 }
 
 export type PlanDecision = { approve: true } | { approve: false; feedback: string }
+
+export type PermissionDecision = { allow: true; always?: boolean } | { allow: false; message?: string }
+
+/** Edit a sent user message: fork at its parent and send `text` instead. */
+export interface ChatRewindInput {
+  chatId: string
+  /** The `user` item being edited (its transcript uuid). */
+  userItemId: string
+  text: string
+  attachments: ChatAttachment[]
+  toggles: ChatToggles
+  /** Also restore files to their state at that message (`rewindFiles`). */
+  revertFiles: boolean
+}
+
+/** Tab reload: `resume` restarts the SDK process on the same session; `fresh` starts a new session. */
+export type ChatRestartMode = 'resume' | 'fresh'
+
+/** A past session of a project, for the resume picker. */
+export interface PastSession {
+  sessionId: string
+  title: string
+  /** First line of the first prompt (directive trailer removed). */
+  firstPrompt: string
+  /** Transcript mtime, epoch ms. */
+  lastActivity: number
+  cwd: string
+  /** `.claude/worktrees/<slug>` when the session ran in a worktree of the project. */
+  worktreeRel?: string
+  model?: string
+  /** An own chat tab already shows this session. */
+  openChatId?: string
+}
+
+/** A slash command or skill the composer can suggest after `/` (from the SDK's supportedCommands). */
+export interface SlashCommandInfo {
+  /** Without the leading slash, e.g. `ai-brain:cc-enhance` or `compact`. */
+  name: string
+  description: string
+  argumentHint: string
+  aliases?: string[]
+  builtin?: boolean
+}
+
+export type RateLimitWindowId = 'five_hour' | 'seven_day' | 'seven_day_opus' | 'seven_day_sonnet'
+
+export interface RateLimitWindow {
+  id: RateLimitWindowId
+  /** Percent used, 0-100. */
+  pct: number
+  /** Epoch ms when the window resets. */
+  resetsAt?: number
+  status?: 'allowed' | 'allowed_warning' | 'rejected'
+}
+
+export interface RateLimits {
+  /** False for API-key / 3P sessions or before the first successful probe. */
+  available: boolean
+  windows: RateLimitWindow[]
+  updatedAt: number
+}
 
 export interface GitInfo {
   isRepo: boolean
@@ -524,12 +613,21 @@ export const IPC_CHANNELS = {
     history: 'chat:history',
     setActive: 'chat:setActive',
     openInTui: 'chat:openInTui',
+    decidePermission: 'chat:decidePermission',
+    rewind: 'chat:rewind',
+    restart: 'chat:restart',
+    listSessions: 'chat:listSessions',
+    listCommands: 'chat:listCommands',
     changed: 'chat:changed',
     items: 'chat:items'
   },
   git: {
     info: 'git:info',
     branches: 'git:branches'
+  },
+  rate: {
+    get: 'rate:get',
+    changed: 'rate:changed'
   },
   attachments: {
     pick: 'attachments:pick',
@@ -608,6 +706,13 @@ export interface Api {
     history(chatId: string): Promise<ChatItem[]>
     setActive(projectKey: string, tab: string): Promise<void>
     openInTui(chatId: string): Promise<{ ptyId: string }>
+    decidePermission(chatId: string, toolUseId: string, decision: PermissionDecision): Promise<void>
+    rewind(input: ChatRewindInput): Promise<void>
+    restart(chatId: string, mode: ChatRestartMode): Promise<ChatMeta>
+    /** Past sessions of the project, newest first (max 50). */
+    listSessions(projectKey: string): Promise<PastSession[]>
+    /** Slash commands and skills available in that chat's folder (cached per cwd). */
+    listCommands(chatId: string): Promise<SlashCommandInfo[]>
     onChanged(cb: (chats: ChatMeta[]) => void): () => void
     onItems(cb: (event: ChatItemsEvent) => void): () => void
   }
@@ -615,6 +720,10 @@ export interface Api {
     info(cwd: string): Promise<GitInfo>
     /** Local branches of the project's repo, current branch first. */
     branches(projectKey: string): Promise<string[]>
+  }
+  rate: {
+    get(): Promise<RateLimits>
+    onChanged(cb: (limits: RateLimits) => void): () => void
   }
   attachments: {
     /** Opens the native file picker (multi-select). */

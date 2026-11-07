@@ -7,6 +7,7 @@ import type {
   ChatToggles,
   EffortLevel,
   ModelOption,
+  PermissionModeId,
   ParsedDirectives
 } from './types'
 
@@ -31,6 +32,46 @@ export const DIRECTIVE_LINES = {
 export const ATTACHED_FILES_HEADER = 'Attached files:'
 
 export const DEFAULT_TOGGLES: ChatToggles = { codex: 'off', ultra: false }
+
+/** Composer mode options, in Shift+Tab cycle order (as in the Claude Code TUI). */
+export const PERMISSION_MODES: { id: PermissionModeId; label: string; description: string }[] = [
+  { id: 'default', label: 'Ask', description: 'Asks before edits and commands' },
+  { id: 'acceptEdits', label: 'Accept edits', description: 'Edits files freely, asks before commands' },
+  { id: 'plan', label: 'Plan', description: 'Reads and plans only; you approve the plan' },
+  { id: 'bypassPermissions', label: 'Full access', description: 'Never asks (like clauded)' }
+]
+
+export const DEFAULT_PERMISSION_MODE: PermissionModeId = 'bypassPermissions'
+
+/** The next mode in the Shift+Tab cycle (wraps around). */
+export function nextPermissionMode(mode: PermissionModeId): PermissionModeId {
+  const i = PERMISSION_MODES.findIndex((m) => m.id === mode)
+  return PERMISSION_MODES[(i + 1) % PERMISSION_MODES.length].id
+}
+
+/** Short label for a mode id; unknown ids fall back to "Full access". */
+export function permissionModeLabel(mode: string | undefined): string {
+  return PERMISSION_MODES.find((m) => m.id === mode)?.label ?? 'Full access'
+}
+
+/** Normalise an unknown value to a mode id the composer offers (e.g. from settings / old files). */
+export function toPermissionMode(value: unknown): PermissionModeId {
+  return PERMISSION_MODES.some((m) => m.id === value)
+    ? (value as PermissionModeId)
+    : DEFAULT_PERMISSION_MODE
+}
+
+/** "Resets in 2h 14m" / "Resets in 3d 4h" / "Resets in 12m"; past or missing → "". */
+export function formatResetIn(resetsAt: number | undefined, now: number): string {
+  if (!resetsAt || resetsAt <= now) return ''
+  const totalMin = Math.max(1, Math.round((resetsAt - now) / 60000))
+  const d = Math.floor(totalMin / 1440)
+  const h = Math.floor((totalMin % 1440) / 60)
+  const m = totalMin % 60
+  if (d > 0) return `Resets in ${d}d ${h}h`
+  if (h > 0) return `Resets in ${h}h ${m}m`
+  return `Resets in ${m}m`
+}
 
 const NL = '\n'
 const BLOCK_SEP = '\n\n'

@@ -6,8 +6,12 @@ import {
   type ChatItemsEvent,
   type ChatMeta,
   type ChatPatch,
+  type ChatRestartMode,
+  type ChatRewindInput,
   type ChatSendInput,
+  type PermissionDecision,
   type PlanDecision,
+  type RateLimits,
   type KanbanMutation,
   type KanbanState,
   type PersistedTerminalsState,
@@ -129,6 +133,14 @@ const api: Api = {
     setActive: (projectKey: string, tab: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.chat.setActive, projectKey, tab),
     openInTui: (chatId: string) => ipcRenderer.invoke(IPC_CHANNELS.chat.openInTui, chatId),
+    decidePermission: (chatId: string, toolUseId: string, decision: PermissionDecision) =>
+      ipcRenderer.invoke(IPC_CHANNELS.chat.decidePermission, chatId, toolUseId, decision),
+    rewind: (input: ChatRewindInput) => ipcRenderer.invoke(IPC_CHANNELS.chat.rewind, input),
+    restart: (chatId: string, mode: ChatRestartMode) =>
+      ipcRenderer.invoke(IPC_CHANNELS.chat.restart, chatId, mode),
+    listSessions: (projectKey: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.chat.listSessions, projectKey),
+    listCommands: (chatId: string) => ipcRenderer.invoke(IPC_CHANNELS.chat.listCommands, chatId),
     onChanged: (cb: (chats: ChatMeta[]) => void) => {
       const listener = (_event: unknown, chats: ChatMeta[]): void => cb(chats)
       ipcRenderer.on(IPC_CHANNELS.chat.changed, listener)
@@ -143,6 +155,14 @@ const api: Api = {
   git: {
     info: (cwd: string) => ipcRenderer.invoke(IPC_CHANNELS.git.info, cwd),
     branches: (projectKey: string) => ipcRenderer.invoke(IPC_CHANNELS.git.branches, projectKey)
+  },
+  rate: {
+    get: () => ipcRenderer.invoke(IPC_CHANNELS.rate.get),
+    onChanged: (cb: (limits: RateLimits) => void) => {
+      const listener = (_event: unknown, limits: RateLimits): void => cb(limits)
+      ipcRenderer.on(IPC_CHANNELS.rate.changed, listener)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.rate.changed, listener)
+    }
   },
   attachments: {
     pick: () => ipcRenderer.invoke(IPC_CHANNELS.attachments.pick),
