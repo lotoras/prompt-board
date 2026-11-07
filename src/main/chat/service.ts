@@ -356,6 +356,8 @@ function ensureHistory(chatId: string): Promise<void> {
         return
       }
       parseLines(state, await readNewLines(tail))
+      // The parsed meta (context tokens, model, effort, branch) feeds the chat list.
+      scheduleBroadcast()
     })().catch((err) => {
       c.histories.delete(chatId)
       console.error('chat history failed', err)
@@ -474,6 +476,9 @@ export function initChatService(getWindow: () => BrowserWindow | null): void {
   const probe = (): void => void probeRate()
   const first = setTimeout(() => {
     probe()
+    // Warm the past-session index (reads every transcript head/tail once) so the resume picker
+    // opens instantly; later calls only re-read files whose mtime/size changed.
+    void listProjectSessions('__warmup__').catch(() => undefined)
     const every = setInterval(probe, RATE_PROBE_EVERY_MS)
     every.unref?.()
     c.rateTimers.push(every)
@@ -705,6 +710,26 @@ async function restart(chatId: string, mode: ChatRestartMode): Promise<ChatMeta>
   return metaFor(chatId) as ChatMeta
 }
 
+/**
+ * `parentUuid` of the transcript record with `uuid` (null = first message), or undefined when the
+ * transcript or the record is missing.
+ */
+async function transcriptParentOf(sessionId: string, uuid: string): Promise<string | null | undefined> {
+  const path = await locateTranscript(sessionId)
+  if (!path) return undefined
+  const text = await fs.readFile(path, 'utf8').catch(() => '')
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.includes(uuid)) continue
+    try {
+      const rec = JSON.parse(line) as { uuid?: string; parentUuid?: string | null }
+      if (rec.uuid === uuid) return rec.parentUuid ?? null
+    } catch {
+      // partial line
+    }
+  }
+  return undefined
+}
+
 async function rewind(input: ChatRewindInput): Promise<void> {
   const c = await ready()
   const chat = findOwn(input.chatId)
@@ -721,12 +746,15 @@ async function rewind(input: ChatRewindInput): Promise<void> {
       toggles: input.toggles
     })
 
-  if (edited.parentUuid == null) {
+  // The transcript's own parent link wins; the live item's chain tip is the fallback.
+  const recorded = await transcriptParentOf(chat.sessionId, edited.id)
+  const forkFrom = recorded !== undefined ? recorded : edited.parentUuid
+  if (forkFrom == null) {
     await restart(input.chatId, 'fresh')
     return send_()
   }
   const res = await c.runner.rewind(metaFor(input.chatId) as ChatMeta, {
-    forkFrom: edited.parentUuid,
+    forkFrom,
     userUuid: edited.id,
     revertFiles: input.revertFiles
   })

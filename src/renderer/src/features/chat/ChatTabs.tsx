@@ -187,6 +187,7 @@ function ResumePicker({ projectKey }: { projectKey: string }): React.JSX.Element
               onChange={(e) => setQuery(e.target.value)}
             />
             <div className="resume-list">
+              {sessions === null && <div className="resume-empty">Loading sessions…</div>}
               {sessions && sessions.length === 0 && (
                 <div className="resume-empty">No past sessions for this project yet.</div>
               )}

@@ -243,9 +243,30 @@ describe('chat/runner', () => {
       await vi.waitFor(() => expect(queries[0].pushed).toHaveLength(1))
       expect(queries[0].pushed[0]).toEqual({
         type: 'user',
+        uuid: expect.any(String),
         message: { role: 'user', content: 'fix it\n\nultrathink\nuse codex' },
         parent_tool_use_id: null
       })
+    })
+
+    it('uses one uuid for the local user item and the SDK message, parented to the chain tip', async () => {
+      const parser = createParserState()
+      parsers.set('chat1', parser)
+      // An earlier turn already in the chain: its last record is the tip.
+      const { applyRecord } = await import('../../src/main/chat/transcriptParser')
+      applyRecord(parser, { type: 'user', uuid: 'u-0', parentUuid: null, message: { role: 'user', content: 'hi' } })
+      applyRecord(parser, {
+        type: 'assistant',
+        uuid: 'a-0',
+        parentUuid: 'u-0',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'hello' }] }
+      })
+      await runner.send(makeChat(), input('next', OFF))
+      await vi.waitFor(() => expect(queries[0].pushed).toHaveLength(1))
+      const pushed = queries[0].pushed[0] as { uuid: string }
+      const item = upserts().find((i) => i.kind === 'user' && i.text === 'next')
+      expect(item?.id).toBe(pushed.uuid)
+      expect(item && item.kind === 'user' ? item.parentUuid : undefined).toBe('a-0')
     })
 
     it('lists non-image files in the composed text', async () => {

@@ -74,6 +74,14 @@ function firstLine(text: string, max: number): string {
   return line.trim().slice(0, max)
 }
 
+/** Claude Code appends "Shell cwd was reset to …" to Bash/PowerShell results; it is not the output. */
+function stripShellNotice(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .filter((l) => !/^Shell cwd was reset to /.test(l.trim()))
+    .join('\n')
+}
+
 function relativePath(path: string, cwd?: string): string {
   if (!cwd) return path
   const p = path.replace(/\\/g, '/')
@@ -170,7 +178,7 @@ function applyToolResult(
   const text = resultText(block.content)
   if (item.kind === 'tool' || item.kind === 'agent') {
     const status = isError ? 'error' : 'ok'
-    const result = firstLine(text, RESULT_MAX)
+    const result = firstLine(stripShellNotice(text), RESULT_MAX)
     let next: ChatItem = { ...item, status, result }
     if (item.kind === 'agent') {
       state.runningAgents = state.runningAgents.filter((a) => a !== id)
@@ -381,6 +389,17 @@ function truncateBranch(state: ParserState, record: TranscriptRecord): void {
       state.runningAgents = state.runningAgents.filter((a) => a !== id)
     }
   }
+}
+
+/**
+ * Last real main-chain uuid (the parent a new prompt attaches to). Skips the synthetic
+ * `turn-…` records the runner adds for live turn ends; null when the chain is empty.
+ */
+export function chainTip(state: ParserState): string | null {
+  for (let i = state.chain.length - 1; i >= 0; i--) {
+    if (!state.chain[i].uuid.startsWith('turn-')) return state.chain[i].uuid
+  }
+  return null
 }
 
 /** Drops `itemId` and every item after it (insertion order), plus the chain entries that created them. */

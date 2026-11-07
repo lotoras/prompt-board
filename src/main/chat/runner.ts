@@ -13,7 +13,7 @@ import type {
   SessionStatus,
   SlashCommandInfo
 } from '../../shared/types'
-import { applyRecord, toolSummary, type ParserState } from './transcriptParser'
+import { applyRecord, chainTip, toolSummary, type ParserState } from './transcriptParser'
 
 /** SDK stream messages are loosely typed at this boundary; each handler narrows what it reads. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -100,6 +100,8 @@ interface Slot {
   mode: PermissionModeId
   turns: number
   resultWaiters: (() => void)[]
+  /** The user asked to stop the running turn; its interrupted result is not an error. */
+  stopRequested: boolean
 }
 
 interface Queue<T> {
@@ -214,7 +216,11 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
     slot.turns = Math.max(0, slot.turns - 1)
     flushWaiters(slot)
     const upsert: ChatItem[] = []
-    if (msg.is_error === true || (typeof msg.subtype === 'string' && msg.subtype.startsWith('error'))) {
+    const failed =
+      msg.is_error === true || (typeof msg.subtype === 'string' && msg.subtype.startsWith('error'))
+    if (failed && slot.stopRequested) {
+      upsert.push({ kind: 'system', id: `stop-${randomUUID()}`, tone: 'info', text: 'Stopped' })
+    } else if (failed) {
       const detail = typeof msg.result === 'string' && msg.result ? msg.result : msg.subtype
       upsert.push({
         kind: 'system',
@@ -223,6 +229,7 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
         text: String(detail ?? 'Error')
       })
     }
+    slot.stopRequested = false
     upsert.push(
       ...applyRecord(deps.parserFor(slot.chatId), {
         type: 'system',
@@ -447,7 +454,8 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
       cwd: chat.cwd,
       mode: chat.permissionMode,
       turns: 0,
-      resultWaiters: []
+      resultWaiters: [],
+      stopRequested: false
     }
     slotRef.current = slot
     slots.set(chat.chatId, slot)
@@ -480,6 +488,7 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
             resolve()
           })
         })
+        slot.stopRequested = true
         denyPending(slot, { behavior: 'deny', message: 'Interrupted', interrupt: true })
         await slot.query.interrupt()
         await settled
@@ -511,11 +520,16 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
         shown = [...images.map(() => ({ type: 'image' })), { type: 'text', text }]
       }
 
+      // One uuid for the local item and the SDK message, so the transcript record matches and
+      // an edit can fork at its parent (the chain tip when it was sent).
+      const uuid = randomUUID()
+      const parser = deps.parserFor(chat.chatId)
       emit(
         chat.chatId,
-        applyRecord(deps.parserFor(chat.chatId), {
+        applyRecord(parser, {
           type: 'user',
-          uuid: `local-${randomUUID()}`,
+          uuid,
+          parentUuid: chainTip(parser),
           message: { role: 'user', content: shown }
         })
       )
@@ -523,6 +537,7 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
       slot.turns++
       slot.queue.push({
         type: 'user',
+        uuid,
         message: { role: 'user', content },
         parent_tool_use_id: null
       })
@@ -531,6 +546,7 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
     async interrupt(chatId) {
       const slot = slots.get(chatId)
       if (!slot) return
+      if (slot.turns > 0) slot.stopRequested = true
       denyPending(slot, { behavior: 'deny', message: 'Interrupted', interrupt: true })
       await slot.query.interrupt()
     },

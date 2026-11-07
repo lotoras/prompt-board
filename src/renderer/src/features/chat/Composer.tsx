@@ -384,7 +384,7 @@ export function Composer({ chat }: { chat: ChatMeta }): React.JSX.Element {
           <ChevronDown className="i sm" strokeWidth={1.8} />
         </button>
         <span className="sep" />
-        <span className="seg-wrap" title="How much Codex is involved">
+        <span className="seg-wrap" title="Codex: Off, Tests (Codex writes the failing tests first) or Full (tests plus a Codex review)">
           <FlaskConical className="i sm" strokeWidth={1.8} />
           <span className="seg-lbl">Codex</span>
           <span
