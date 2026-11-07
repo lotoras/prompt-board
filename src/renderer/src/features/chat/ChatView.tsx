@@ -12,6 +12,7 @@ import { AgentCard } from './items/AgentCard'
 import { AssistantText } from './items/AssistantText'
 import { CommandChip } from './items/CommandChip'
 import { EditDiff } from './items/EditDiff'
+import { PermissionCard } from './items/PermissionCard'
 import { PlanCard } from './items/PlanCard'
 import { QuestionCard } from './items/QuestionCard'
 import { SystemNote } from './items/SystemNote'
@@ -30,7 +31,7 @@ const STATUS_LABEL: Record<string, string> = {
 function Block({ block, chatId }: { block: RenderBlock; chatId: string }): React.JSX.Element {
   switch (block.type) {
     case 'user':
-      return <UserMessage item={block.item} />
+      return <UserMessage chatId={chatId} item={block.item} />
     case 'worklog':
       return (
         <WorkLog
@@ -50,6 +51,8 @@ function Block({ block, chatId }: { block: RenderBlock; chatId: string }): React
       return <QuestionCard chatId={chatId} item={block.item} />
     case 'plan':
       return <PlanCard chatId={chatId} item={block.item} />
+    case 'permission':
+      return <PermissionCard chatId={chatId} item={block.item} />
     case 'system':
       return <SystemNote item={block.item} />
     case 'command':

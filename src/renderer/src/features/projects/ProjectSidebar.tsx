@@ -7,6 +7,7 @@ import { playCoinBlip } from '../../lib/retroSound'
 import { startNewChat } from '../chat/newChat'
 import { syncDotColor } from '../sync/syncStatus'
 import { ProjectRow } from './ProjectRow'
+import { RateMeters } from './RateMeters'
 import type { ProjectDot } from './ProjectRow'
 
 export function ProjectSidebar(): React.JSX.Element {
@@ -145,6 +146,7 @@ export function ProjectSidebar(): React.JSX.Element {
           )
         })}
       </div>
+      <RateMeters />
       <div className="side-foot">
         <button
           type="button"

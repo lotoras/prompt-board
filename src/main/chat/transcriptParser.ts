@@ -16,6 +16,7 @@ export interface TranscriptRecord {
   type: string
   subtype?: string
   uuid?: string
+  parentUuid?: string | null
   isSidechain?: boolean
   isMeta?: boolean
   message?: { id?: string; role?: string; model?: string; content?: unknown; usage?: unknown }
@@ -33,6 +34,8 @@ export interface ParserState {
   meta: TranscriptMeta
   runningAgents: string[]
   seq: number
+  chain: { uuid: string; created: string[] }[]
+  fresh: string[]
 }
 
 const RESULT_MAX = 120
@@ -52,7 +55,9 @@ export function createParserState(cwd?: string): ParserState {
     items: new Map(),
     meta: { totalTokens: 0, ...(cwd ? { cwd } : {}) },
     runningAgents: [],
-    seq: 0
+    seq: 0,
+    chain: [],
+    fresh: []
   }
 }
 
@@ -141,11 +146,13 @@ function userItem(
     text: parsed.text,
     directives: parsed.directives,
     attachments,
+    parentUuid: record.parentUuid ?? null,
     ...(Number.isFinite(ts) ? { ts } : {})
   }
 }
 
 function put(state: ParserState, item: ChatItem, out: Map<string, ChatItem>): void {
+  if (!state.items.has(item.id)) state.fresh.push(item.id)
   state.items.set(item.id, item)
   out.set(item.id, item)
 }
@@ -350,8 +357,48 @@ function applyAssistant(
   })
 }
 
+function isPromptRecord(record: TranscriptRecord): boolean {
+  if (record.type !== 'user' || record.isSidechain === true || record.isMeta) return false
+  const content = record.message?.content
+  if (typeof content === 'string') return true
+  return (
+    Array.isArray(content) &&
+    content.some((b) => isObj(b) && (b.type === 'text' || b.type === 'image')) &&
+    !content.some((b) => isObj(b) && b.type === 'tool_result')
+  )
+}
+
+function truncateBranch(state: ParserState, record: TranscriptRecord): void {
+  const parent = record.parentUuid
+  if (!parent || !isPromptRecord(record)) return
+  const tip = state.chain[state.chain.length - 1]
+  if (!tip || tip.uuid === parent) return
+  const at = state.chain.findIndex((c) => c.uuid === parent)
+  if (at < 0) return
+  for (const dropped of state.chain.splice(at + 1)) {
+    for (const id of dropped.created) {
+      state.items.delete(id)
+      state.runningAgents = state.runningAgents.filter((a) => a !== id)
+    }
+  }
+}
+
+/** Drops `itemId` and every item after it (insertion order), plus the chain entries that created them. */
+export function dropItemsFrom(state: ParserState, itemId: string): void {
+  const ids = [...state.items.keys()]
+  const at = ids.indexOf(itemId)
+  if (at < 0) return
+  const dropped = new Set(ids.slice(at))
+  for (const id of dropped) state.items.delete(id)
+  state.runningAgents = state.runningAgents.filter((a) => !dropped.has(a))
+  const cut = state.chain.findIndex((c) => c.created.some((id) => dropped.has(id)))
+  if (cut >= 0) state.chain.splice(cut)
+}
+
 export function applyRecord(state: ParserState, record: TranscriptRecord): ChatItem[] {
   const out = new Map<string, ChatItem>()
+  truncateBranch(state, record)
+  state.fresh = []
   if (typeof record.gitBranch === 'string') state.meta.gitBranch = record.gitBranch
   if (typeof record.cwd === 'string') state.meta.cwd = record.cwd
   if (typeof record.aiTitle === 'string') state.meta.aiTitle = record.aiTitle
@@ -367,6 +414,9 @@ export function applyRecord(state: ParserState, record: TranscriptRecord): ChatI
     } else if (record.subtype === 'compact_boundary') {
       put(state, { kind: 'system', id, text: 'Context compacted' }, out)
     }
+  }
+  if (record.uuid && record.isSidechain !== true && ['user', 'assistant', 'system'].includes(record.type)) {
+    state.chain.push({ uuid: record.uuid, created: state.fresh })
   }
   return [...out.values()]
 }

@@ -459,3 +459,36 @@ button.cx-head:hover { background: var(--surface); }
 .sync-status-line .ok { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
 .sync-status-line .ok.amber { background: var(--attention); }
 .sync-status-line .ok.grey { background: var(--idle); }
+
+/* rate meters (sidebar footer) */
+.rate-meters { display: flex; flex-direction: column; gap: 5px; padding: 8px 12px 4px; border-top: 1px solid var(--border); }
+.rate-row { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); }
+.rate-lbl { width: 52px; flex: none; }
+.rate-bar { flex: 1; height: 4px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.rate-bar i { display: block; height: 100%; border-radius: 999px; background: var(--primary-text); }
+.rate-row.hot .rate-bar i { background: var(--attention); }
+.rate-row.crit .rate-bar i { background: var(--err); }
+.rate-row.hot .rate-pct { color: var(--attention); }
+.rate-row.crit .rate-pct { color: var(--err); }
+.rate-pct { width: 34px; text-align: right; flex: none; }
+.rate-meters + .side-foot { border-top: 0; }
+
+/* composer mode, slash list, message edit, tab menu, resume picker */
+.ctl.mode-plan { color: var(--attention); background: var(--attention-soft); }
+.slash-list { position: absolute; left: 8px; right: 8px; bottom: 100%; margin-bottom: 6px; z-index: 20; padding: 5px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--elevated); box-shadow: 0 18px 50px -12px rgb(0 0 0 / 0.9); }
+.slash-list .pop-item .sl-name { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+.slash-list .pop-item .sl-hint { color: var(--faint); font-size: 11.5px; margin-left: 6px; }
+.edit-box { width: min(85%, 620px); display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 12px; border: 1px solid var(--border-strong); background: var(--surface-2); }
+.edit-box textarea { width: 100%; min-height: 64px; resize: vertical; background: rgb(0 0 0 / 0.35); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; color: var(--text); font-size: 14px; line-height: 1.5; }
+.edit-box .edit-opt { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; }
+.u-row .edit-btn { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; color: var(--faint); opacity: 0; }
+.u-row:hover .edit-btn, .u-row .edit-btn:focus-visible { opacity: 1; }
+.u-row .edit-btn:hover { background: var(--surface-2); color: var(--text); }
+.tab-menu { min-width: 190px; }
+.resume-pop { width: 340px; max-height: 420px; display: flex; flex-direction: column; }
+.resume-pop input { height: 32px; margin: 2px 2px 6px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: rgb(0 0 0 / 0.35); color: var(--text); }
+.resume-list { overflow-y: auto; }
+.resume-pop .pi-title { color: var(--text); font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.resume-pop .pi-meta { color: var(--faint); font-size: 11.5px; }
+.resume-pop .badge-sm { font-size: 10.5px; padding: 0 6px; border-radius: 999px; background: var(--primary-soft); color: var(--primary-text); }
+.resume-empty { padding: 12px 10px; color: var(--muted); font-size: 12.5px; }

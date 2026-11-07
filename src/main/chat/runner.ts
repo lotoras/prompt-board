@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { composePrompt } from '../../shared/chat'
+import { PERMISSION_MODES, composePrompt } from '../../shared/chat'
 import type {
   ChatAttachment,
   ChatItem,
@@ -7,10 +7,13 @@ import type {
   ChatMeta,
   ChatToggles,
   EffortLevel,
+  PermissionDecision,
+  PermissionModeId,
   PlanDecision,
-  SessionStatus
+  SessionStatus,
+  SlashCommandInfo
 } from '../../shared/types'
-import { applyRecord, type ParserState } from './transcriptParser'
+import { applyRecord, toolSummary, type ParserState } from './transcriptParser'
 
 /** SDK stream messages are loosely typed at this boundary; each handler narrows what it reads. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -21,6 +24,13 @@ export interface SdkQuery extends AsyncIterable<SdkMessage> {
   setModel(m?: string): Promise<void>
   applyFlagSettings(s: Record<string, unknown>): Promise<void>
   getContextUsage(o?: unknown): Promise<{ totalTokens: number; maxTokens: number }>
+  setPermissionMode(m: string): Promise<void>
+  rewindFiles(
+    userMessageId: string,
+    o?: { dryRun?: boolean }
+  ): Promise<{ canRewind: boolean; error?: string; filesChanged?: string[] }>
+  usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET(o?: { skipBehaviors?: boolean }): Promise<unknown>
+  supportedCommands(): Promise<SlashCommandInfo[]>
   close(): void
 }
 
@@ -34,17 +44,29 @@ export interface RunnerDeps {
   emitItems(e: ChatItemsEvent): void
   emitStatus(chatId: string, status: SessionStatus, waitingFor?: string): void
   emitMeta(chatId: string, patch: Partial<ChatMeta>): void
+  onRateLimit?(info: unknown): void
   idleCloseMs?: number
 }
 
 export interface ChatRunner {
   send(
     chat: ChatMeta,
-    input: { text: string; attachments: ChatAttachment[]; toggles: ChatToggles }
+    input: { text: string; attachments: ChatAttachment[]; toggles: ChatToggles },
+    opts?: { interrupt?: boolean }
   ): Promise<void>
   interrupt(chatId: string): Promise<void>
   answerQuestion(chatId: string, toolUseId: string, answers: Record<string, string> | null): boolean
   decidePlan(chatId: string, toolUseId: string, decision: PlanDecision): boolean
+  decidePermission(chatId: string, toolUseId: string, decision: PermissionDecision): boolean
+  setPermissionMode(chatId: string, mode: PermissionModeId): Promise<void>
+  rewind(
+    chat: ChatMeta,
+    input: { forkFrom: string; userUuid: string; revertFiles: boolean }
+  ): Promise<{ filesChanged?: number; error?: string }>
+  usage(chatId?: string): Promise<unknown | null>
+  commands(chatId: string): Promise<SlashCommandInfo[] | null>
+  probeUsage(cwd: string): Promise<unknown | null>
+  probeCommands(cwd: string): Promise<SlashCommandInfo[]>
   setModel(chatId: string, model: string): Promise<void>
   setEffort(chatId: string, effort: EffortLevel, ultra: boolean): Promise<void>
   isRunning(chatId: string): boolean
@@ -53,12 +75,14 @@ export interface ChatRunner {
 }
 
 type PermissionResult =
-  | { behavior: 'allow'; updatedInput: Record<string, unknown> }
+  | { behavior: 'allow'; updatedInput: Record<string, unknown>; updatedPermissions?: unknown[] }
   | { behavior: 'deny'; message: string; interrupt?: boolean }
 
 interface Pending {
-  kind: 'question' | 'plan'
+  kind: 'question' | 'plan' | 'permission'
   input: Record<string, unknown>
+  item?: Extract<ChatItem, { kind: 'permission' }>
+  suggestions?: unknown[]
   resolve(result: PermissionResult): void
 }
 
@@ -72,6 +96,10 @@ interface Slot {
   liveActive: boolean
   idleTimer: ReturnType<typeof setTimeout> | null
   closed: boolean
+  cwd: string
+  mode: PermissionModeId
+  turns: number
+  resultWaiters: (() => void)[]
 }
 
 interface Queue<T> {
@@ -81,6 +109,7 @@ interface Queue<T> {
 }
 
 const DEFAULT_IDLE_CLOSE_MS = 30 * 60 * 1000
+const INTERRUPT_WAIT_MS = 5000
 
 function createQueue<T>(): Queue<T> {
   const buffer: T[] = []
@@ -128,6 +157,7 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
   const slots = new Map<string, Slot>()
   const opening = new Map<string, Promise<Slot>>()
   const startedSessions = new Set<string>()
+  const forkAt = new Map<string, string>()
 
   function denyPending(slot: Slot, result: PermissionResult): void {
     const all = [...slot.pending.values()]
@@ -135,8 +165,14 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
     for (const p of all) p.resolve(result)
   }
 
+  function flushWaiters(slot: Slot): void {
+    const waiters = slot.resultWaiters.splice(0)
+    for (const w of waiters) w()
+  }
+
   function forget(slot: Slot): void {
     slot.closed = true
+    flushWaiters(slot)
     if (slot.idleTimer) clearTimeout(slot.idleTimer)
     slot.idleTimer = null
     slot.queue.end()
@@ -175,6 +211,8 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
   }
 
   async function handleResult(slot: Slot, msg: SdkMessage): Promise<void> {
+    slot.turns = Math.max(0, slot.turns - 1)
+    flushWaiters(slot)
     const upsert: ChatItem[] = []
     if (msg.is_error === true || (typeof msg.subtype === 'string' && msg.subtype.startsWith('error'))) {
       const detail = typeof msg.result === 'string' && msg.result ? msg.result : msg.subtype
@@ -254,6 +292,19 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
       }
       case 'result':
         return handleResult(slot, msg)
+      case 'system': {
+        const mode = msg.permissionMode
+        if (typeof mode === 'string' && PERMISSION_MODES.some((m) => m.id === mode)) {
+          if (mode !== slot.mode) {
+            slot.mode = mode as PermissionModeId
+            deps.emitMeta(chatId, { permissionMode: slot.mode })
+          }
+        }
+        return
+      }
+      case 'rate_limit_event':
+        deps.onRateLimit?.(msg.rate_limit_info)
+        return
     }
   }
 
@@ -288,20 +339,71 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
     return (
       name: string,
       input: Record<string, unknown>,
-      opts?: { toolUseID?: string; signal?: AbortSignal }
+      opts?: {
+        toolUseID?: string
+        signal?: AbortSignal
+        title?: string
+        description?: string
+        suggestions?: unknown[]
+        suppressAlwaysAllowRule?: boolean
+      }
     ): Promise<PermissionResult> => {
-      if (name !== 'AskUserQuestion' && name !== 'ExitPlanMode') {
+      const interactive = name === 'AskUserQuestion' || name === 'ExitPlanMode'
+      if (!interactive && slot.mode === 'bypassPermissions') {
         return Promise.resolve({ behavior: 'allow', updatedInput: input })
       }
       const id = opts?.toolUseID ?? randomUUID()
-      const kind = name === 'AskUserQuestion' ? 'question' : 'plan'
+      const kind = name === 'AskUserQuestion' ? 'question' : name === 'ExitPlanMode' ? 'plan' : 'permission'
       return new Promise<PermissionResult>((resolve) => {
-        slot.pending.set(id, { kind, input, resolve })
+        const entry: Pending = { kind, input, resolve }
+        if (kind === 'permission') {
+          entry.suggestions = opts?.suggestions
+          entry.item = {
+            kind: 'permission',
+            id,
+            toolName: name,
+            title: opts?.title ?? `Claude wants to use ${name}`,
+            ...(opts?.description ? { description: opts.description } : {}),
+            summary: toolSummary(name, input, slot.cwd),
+            canAlwaysAllow: Boolean(opts?.suggestions?.length) && !opts?.suppressAlwaysAllowRule,
+            state: 'pending'
+          }
+          emit(slot.chatId, [entry.item])
+        }
+        slot.pending.set(id, entry)
         opts?.signal?.addEventListener('abort', () => {
-          if (slot.pending.delete(id)) resolve({ behavior: 'deny', message: 'Aborted', interrupt: true })
+          if (slot.pending.delete(id)) {
+            resolve({ behavior: 'deny', message: 'Aborted', interrupt: true })
+            if (entry.item) emit(slot.chatId, [{ ...entry.item, state: 'denied' }])
+          }
         })
         deps.emitStatus(slot.chatId, 'waiting', kind)
       })
+    }
+  }
+
+  async function withProbe<T>(
+    cwd: string,
+    fn: (q: SdkQuery) => Promise<T>,
+    extra: Record<string, unknown> = {}
+  ): Promise<T> {
+    const sdk = await deps.loadSdk()
+    const queue = createQueue<unknown>()
+    const env: Record<string, string | undefined> = { ...process.env }
+    delete env.ANTHROPIC_API_KEY
+    const query = sdk.query({
+      prompt: queue.iterable,
+      options: { cwd, pathToClaudeCodeExecutable: deps.claudePath(), env, ...extra }
+    })
+    try {
+      return await fn(query)
+    } finally {
+      queue.end()
+      try {
+        query.close()
+      } catch (err) {
+        console.error('probe query close failed', err)
+      }
     }
   }
 
@@ -310,7 +412,9 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
     const queue = createQueue<unknown>()
     const env: Record<string, string | undefined> = { ...process.env }
     delete env.ANTHROPIC_API_KEY
-    const resume = chat.started || startedSessions.has(chat.sessionId)
+    const fork = forkAt.get(chat.chatId)
+    forkAt.delete(chat.chatId)
+    const resume = chat.started || startedSessions.has(chat.sessionId) || fork !== undefined
     const slotRef: { current?: Slot } = {}
     const options: Record<string, unknown> = {
       cwd: chat.cwd,
@@ -318,13 +422,15 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
       effort: chat.effort,
       pathToClaudeCodeExecutable: deps.claudePath(),
       systemPrompt: { type: 'preset', preset: 'claude_code' },
-      permissionMode: 'bypassPermissions',
+      permissionMode: chat.permissionMode,
       allowDangerouslySkipPermissions: true,
+      enableFileCheckpointing: true,
       includePartialMessages: true,
       env,
       canUseTool: (name: string, input: Record<string, unknown>, opts: SdkMessage) =>
         makeCanUseTool(slotRef.current as Slot)(name, input, opts),
-      ...(resume ? { resume: chat.sessionId } : { sessionId: chat.sessionId })
+      ...(resume ? { resume: chat.sessionId } : { sessionId: chat.sessionId }),
+      ...(fork !== undefined ? { resumeSessionAt: fork } : {})
     }
     const query = sdk.query({ prompt: queue.iterable, options })
     startedSessions.add(chat.sessionId)
@@ -337,7 +443,11 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
       liveText: '',
       liveActive: false,
       idleTimer: null,
-      closed: false
+      closed: false,
+      cwd: chat.cwd,
+      mode: chat.permissionMode,
+      turns: 0,
+      resultWaiters: []
     }
     slotRef.current = slot
     slots.set(chat.chatId, slot)
@@ -357,10 +467,23 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
   }
 
   return {
-    async send(chat, input) {
+    async send(chat, input, opts) {
       const slot = await slotFor(chat)
       if (slot.idleTimer) clearTimeout(slot.idleTimer)
       slot.idleTimer = null
+
+      if (opts?.interrupt && slot.turns > 0) {
+        const settled = new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, INTERRUPT_WAIT_MS)
+          slot.resultWaiters.push(() => {
+            clearTimeout(timer)
+            resolve()
+          })
+        })
+        denyPending(slot, { behavior: 'deny', message: 'Interrupted', interrupt: true })
+        await slot.query.interrupt()
+        await settled
+      }
 
       if (input.toggles.ultra !== slot.lastUltra) {
         await slot.query.applyFlagSettings({
@@ -397,6 +520,7 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
         })
       )
       deps.emitStatus(chat.chatId, 'busy')
+      slot.turns++
       slot.queue.push({
         type: 'user',
         message: { role: 'user', content },
@@ -437,6 +561,92 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
       )
       deps.emitStatus(chatId, 'busy')
       return true
+    },
+
+    decidePermission(chatId, toolUseId, d) {
+      const slot = slots.get(chatId)
+      const p = slot?.pending.get(toolUseId)
+      if (!slot || !p || p.kind !== 'permission' || !p.item) return false
+      slot.pending.delete(toolUseId)
+      if (d.allow) {
+        p.resolve({
+          behavior: 'allow',
+          updatedInput: p.input,
+          ...(d.always && p.suggestions ? { updatedPermissions: p.suggestions } : {})
+        })
+      } else {
+        p.resolve({ behavior: 'deny', message: d.message ?? 'The user denied this action.' })
+      }
+      emit(chatId, [{ ...p.item, state: d.allow ? 'allowed' : 'denied' }])
+      deps.emitStatus(chatId, 'busy')
+      return true
+    },
+
+    async setPermissionMode(chatId, mode) {
+      const slot = slots.get(chatId)
+      if (!slot) return
+      slot.mode = mode
+      await slot.query.setPermissionMode(mode)
+    },
+
+    async rewind(chat, input) {
+      const existing = slots.get(chat.chatId)
+      if (existing) closeSlot(existing)
+      forkAt.set(chat.chatId, input.forkFrom)
+      if (!input.revertFiles) return {}
+      try {
+        return await withProbe(
+          chat.cwd,
+          async (q) => {
+            const res = await q.rewindFiles(input.userUuid, { dryRun: false })
+            if (!res.canRewind) return { error: res.error ?? 'Files cannot be restored' }
+            return { filesChanged: res.filesChanged?.length ?? 0 }
+          },
+          { resume: chat.sessionId, enableFileCheckpointing: true }
+        )
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) }
+      }
+    },
+
+    async usage(chatId) {
+      const slot = (chatId ? slots.get(chatId) : undefined) ?? [...slots.values()][0]
+      if (!slot) return null
+      try {
+        return await slot.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({
+          skipBehaviors: true
+        })
+      } catch {
+        return null
+      }
+    },
+
+    async commands(chatId) {
+      const slot = slots.get(chatId)
+      if (!slot) return null
+      try {
+        return await slot.query.supportedCommands()
+      } catch {
+        return null
+      }
+    },
+
+    async probeUsage(cwd) {
+      try {
+        return await withProbe(cwd, (q) =>
+          q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true })
+        )
+      } catch {
+        return null
+      }
+    },
+
+    async probeCommands(cwd) {
+      try {
+        return await withProbe(cwd, (q) => q.supportedCommands())
+      } catch {
+        return []
+      }
     },
 
     async setModel(chatId, model) {

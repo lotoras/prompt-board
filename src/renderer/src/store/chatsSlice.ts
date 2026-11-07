@@ -9,6 +9,8 @@ import type {
   ChatItemsEvent,
   ChatMeta,
   ChatPatch,
+  RateLimits,
+  SlashCommandInfo,
   ChatToggles,
   WorkspacePlan
 } from '../../../shared/types'
@@ -46,6 +48,11 @@ export interface ChatsSlice {
   drafts: Record<string, Draft>
   toggleDefaults: Record<string, ChatToggles>
   tuiPtyByChat: Record<string, string>
+  rateLimits: RateLimits | null
+  slashCommands: Record<string, SlashCommandInfo[]>
+  setRateLimits: (limits: RateLimits | null) => void
+  loadSlashCommands: (chatId: string) => Promise<void>
+  clearChat: (chatId: string) => void
   setChats: (chats: ChatMeta[]) => void
   setActiveByProject: (active: Record<string, string>) => void
   applyItems: (event: ChatItemsEvent) => void
@@ -56,7 +63,7 @@ export interface ChatsSlice {
   addAttachments: (chatId: string, attachments: ChatAttachment[]) => void
   removeAttachment: (chatId: string, path: string) => void
   setWorkspace: (chatId: string, patch: WorkspacePatch) => void
-  sendChat: (chatId: string) => Promise<void>
+  sendChat: (chatId: string, opts?: { interrupt?: boolean }) => Promise<void>
   updateChat: (chatId: string, patch: ChatPatch) => void
   closeChat: (chatId: string) => Promise<void>
   toggleChatAck: (chatId: string) => void
@@ -99,6 +106,8 @@ export function effectiveBranchName(draft: Draft): string {
     : suggestBranchName(draft.text)
 }
 
+const loadingCommands = new Set<string>()
+
 export const createChatsSlice: StateCreator<StoreState, [], [], ChatsSlice> = (set, get) => {
   const patchDraft = (chatId: string, patch: Partial<Draft>): void =>
     set((state) => ({
@@ -112,6 +121,26 @@ export const createChatsSlice: StateCreator<StoreState, [], [], ChatsSlice> = (s
     drafts: {},
     toggleDefaults: loadToggleDefaults(),
     tuiPtyByChat: {},
+    rateLimits: null,
+    slashCommands: {},
+    setRateLimits: (rateLimits) => set({ rateLimits }),
+    loadSlashCommands: async (chatId) => {
+      if (get().slashCommands[chatId] || loadingCommands.has(chatId)) return
+      loadingCommands.add(chatId)
+      try {
+        const list = await api.chat.listCommands(chatId)
+        set((state) => ({ slashCommands: { ...state.slashCommands, [chatId]: list } }))
+      } catch (error) {
+        console.error(error)
+      } finally {
+        loadingCommands.delete(chatId)
+      }
+    },
+    clearChat: (chatId) =>
+      set((state) => ({
+        items: { ...state.items, [chatId]: [] },
+        drafts: withoutKey(state.drafts, chatId)
+      })),
     setChats: (chats) => set({ chats }),
     setActiveByProject: (activeByProject) => set({ activeByProject }),
     applyItems: (event) =>
@@ -181,7 +210,7 @@ export const createChatsSlice: StateCreator<StoreState, [], [], ChatsSlice> = (s
         ...(nameTouched !== undefined ? { nameTouched } : {})
       })
     },
-    sendChat: async (chatId) => {
+    sendChat: async (chatId, opts) => {
       const chat = get().chats.find((c) => c.chatId === chatId)
       const draft = get().drafts[chatId] ?? EMPTY_DRAFT
       if (!chat || (!draft.text.trim() && draft.attachments.length === 0)) return
@@ -198,7 +227,8 @@ export const createChatsSlice: StateCreator<StoreState, [], [], ChatsSlice> = (s
           text: draft.text,
           attachments: draft.attachments,
           toggles: chat.toggles,
-          workspace
+          workspace,
+          ...(opts?.interrupt ? { interrupt: true } : {})
         })
       } catch (error) {
         console.error(error)

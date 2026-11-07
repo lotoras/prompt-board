@@ -1,8 +1,9 @@
 import { app } from 'electron'
 import { join } from 'path'
-import { DEFAULT_TOGGLES } from '../../shared/chat'
+import { DEFAULT_PERMISSION_MODE, DEFAULT_TOGGLES, toPermissionMode } from '../../shared/chat'
 import type {
   EffortLevel,
+  PermissionModeId,
   PersistedChat,
   PersistedChatsState,
   PersistedTerminalsState,
@@ -21,7 +22,7 @@ export function migrateFromTerminals(
   t: PersistedTerminalsState,
   projects: Project[],
   now: number,
-  defaults: { model: string; effort: EffortLevel }
+  defaults: { model: string; effort: EffortLevel; permissionMode?: PermissionModeId }
 ): PersistedChatsState {
   const byKey = new Map(projects.map((p) => [p.projectKey, p]))
   const chats: PersistedChat[] = []
@@ -40,6 +41,7 @@ export function migrateFromTerminals(
       model: defaults.model,
       effort: defaults.effort,
       toggles: DEFAULT_TOGGLES,
+      permissionMode: defaults.permissionMode ?? DEFAULT_PERMISSION_MODE,
       started: true,
       createdAt: now,
       updatedAt: now
@@ -66,7 +68,8 @@ export async function loadChatsState(): Promise<PersistedChatsState> {
   }
   if (existing) {
     if (!Array.isArray(existing.chats)) return { chats: [], activeByProject: {} }
-    return { chats: existing.chats, activeByProject: existing.activeByProject ?? {} }
+    const chats = existing.chats.map((c) => ({ ...c, permissionMode: toPermissionMode(c.permissionMode) }))
+    return { chats, activeByProject: existing.activeByProject ?? {} }
   }
   const migrated = migrateFromTerminals(
     await loadPersisted(),

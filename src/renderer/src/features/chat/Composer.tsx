@@ -1,25 +1,53 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   ArrowUp,
+  Check,
   ChevronDown,
   File as FileIcon,
+  FilePen,
   FlaskConical,
+  Hand,
   Image as ImageIcon,
+  ListChecks,
   Monitor,
   Terminal,
   Paperclip,
+  ShieldOff,
   Sparkles,
   Square,
   X
 } from 'lucide-react'
-import { contextWindowFor, modelLabel } from '../../../../shared/chat'
-import type { ChatAttachment, ChatMeta, CodexLevel } from '../../../../shared/types'
+import {
+  PERMISSION_MODES,
+  contextWindowFor,
+  modelLabel,
+  nextPermissionMode,
+  permissionModeLabel
+} from '../../../../shared/chat'
+import type {
+  ChatAttachment,
+  ChatMeta,
+  CodexLevel,
+  PermissionModeId,
+  SlashCommandInfo
+} from '../../../../shared/types'
 import { api } from '../../lib/api'
 import { formatFileSize, formatTokens } from '../../lib/format'
 import { EMPTY_DRAFT } from '../../store/chatsSlice'
 import { useStore } from '../../store'
 import { EffortPopover, EffortTicks, ModelPopover } from './popovers/pickers'
 import { modelColor } from './popovers/pickerData'
+import { Popover } from './popovers/Popover'
+import { matchSlashCommands } from './slashMatch'
+
+const NO_COMMANDS: SlashCommandInfo[] = []
+
+const MODE_ICONS: Record<PermissionModeId, typeof Hand> = {
+  default: Hand,
+  acceptEdits: FilePen,
+  plan: ListChecks,
+  bypassPermissions: ShieldOff
+}
 
 const CODEX_LEVELS: { id: CodexLevel; label: string; hint: string }[] = [
   { id: 'off', label: 'Off', hint: 'Claude does everything' },
@@ -95,11 +123,16 @@ export function Composer({ chat }: { chat: ChatMeta }): React.JSX.Element {
   const sendChat = useStore((s) => s.sendChat)
   const updateChat = useStore((s) => s.updateChat)
   const showToast = useStore((s) => s.showToast)
+  const commands = useStore((s) => s.slashCommands[chatId] ?? NO_COMMANDS)
+  const loadSlashCommands = useStore((s) => s.loadSlashCommands)
 
   const textRef = useRef<HTMLTextAreaElement>(null)
   // Popover anchors live in state (callback refs) so render never reads ref.current.
   const [modelEl, setModelEl] = useState<HTMLButtonElement | null>(null)
   const [effortEl, setEffortEl] = useState<HTMLButtonElement | null>(null)
+  const [modeEl, setModeEl] = useState<HTMLButtonElement | null>(null)
+  const [slashIndex, setSlashIndex] = useState(0)
+  const [slashClosed, setSlashClosed] = useState(false)
   const dragDepth = useRef(0)
   const [dragging, setDragging] = useState(false)
   const [sweep, setSweep] = useState(false)
@@ -107,6 +140,10 @@ export function Composer({ chat }: { chat: ChatMeta }): React.JSX.Element {
   const external = chat.mode === 'external'
   const busy = chat.status === 'busy'
   const empty = !draft.text.trim() && draft.attachments.length === 0
+  const slashMatch = /^\/(\S*)$/.exec(draft.text)
+  const slashItems = slashMatch && !slashClosed ? matchSlashCommands(slashMatch[1], commands) : NO_COMMANDS
+  const slashOpen = slashItems.length > 0
+  const slashActive = Math.min(slashIndex, Math.max(0, slashItems.length - 1))
 
   useEffect(() => {
     const el = textRef.current
@@ -182,9 +219,17 @@ export function Composer({ chat }: { chat: ChatMeta }): React.JSX.Element {
 
   const hasFiles = (e: React.DragEvent): boolean => Array.from(e.dataTransfer?.types ?? []).includes('Files')
 
-  const send = (): void => {
-    if (!empty) void sendChat(chatId)
+  const send = (interrupt = false): void => {
+    if (!empty) void sendChat(chatId, interrupt ? { interrupt: true } : undefined)
   }
+
+  const insertCommand = (name: string): void => {
+    setDraftText(chatId, `/${name} `)
+    textRef.current?.focus()
+  }
+
+  const cycleMode = (): void => updateChat(chatId, { permissionMode: nextPermissionMode(chat.permissionMode) })
+  const ModeIcon = MODE_ICONS[chat.permissionMode] ?? ShieldOff
 
   const window_ = chat.contextWindow ?? contextWindowFor(chat.model)
   const pct = chat.contextTokens
@@ -226,15 +271,73 @@ export function Composer({ chat }: { chat: ChatMeta }): React.JSX.Element {
         placeholder={
           busy ? 'Queue a follow-up for when Claude finishes' : 'Ask Claude to build, fix or explain something'
         }
-        onChange={(e) => setDraftText(chatId, e.target.value)}
+        onChange={(e) => {
+          const value = e.target.value
+          setDraftText(chatId, value)
+          setSlashIndex(0)
+          setSlashClosed(false)
+          if (value.startsWith('/')) void loadSlashCommands(chatId)
+        }}
         onPaste={onPaste}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+          if (e.nativeEvent.isComposing) return
+          if (slashOpen) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              e.preventDefault()
+              const step = e.key === 'ArrowDown' ? 1 : -1
+              setSlashIndex((slashActive + step + slashItems.length) % slashItems.length)
+              return
+            }
+            if ((e.key === 'Enter' && !e.ctrlKey && !e.shiftKey) || (e.key === 'Tab' && !e.shiftKey)) {
+              e.preventDefault()
+              insertCommand(slashItems[slashActive].name)
+              return
+            }
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              setSlashClosed(true)
+              return
+            }
+          }
+          if (e.key === 'Tab' && e.shiftKey) {
+            e.preventDefault()
+            cycleMode()
+            return
+          }
+          if (e.key === 'Enter' && e.ctrlKey) {
+            e.preventDefault()
+            send(busy)
+            return
+          }
+          if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
             send()
           }
         }}
       />
+      {slashOpen && (
+        <div className="slash-list" role="listbox" aria-label="Commands">
+          {slashItems.map((c, i) => (
+            <button
+              key={c.name}
+              type="button"
+              role="option"
+              aria-selected={i === slashActive}
+              className={`pop-item${i === slashActive ? ' kb' : ''}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => insertCommand(c.name)}
+            >
+              <span className="pi-main">
+                <div>
+                  <span className="sl-name">{`/${c.name}`}</span>
+                  {c.argumentHint && <span className="sl-hint">{c.argumentHint}</span>}
+                </div>
+                {c.description && <div className="pi-desc">{c.description}</div>}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="controls">
         <button
           type="button"
@@ -246,6 +349,18 @@ export function Composer({ chat }: { chat: ChatMeta }): React.JSX.Element {
           <Paperclip className="i" strokeWidth={1.8} />
         </button>
         <span className="sep" />
+        <button
+          ref={setModeEl}
+          type="button"
+          className={`ctl${chat.permissionMode === 'plan' ? ' mode-plan' : ''}`}
+          title="Permission mode (Shift+Tab)"
+          aria-label="Permission mode"
+          onClick={() => setPopover(popover === 'mode' ? null : 'mode')}
+        >
+          <ModeIcon className="i sm" strokeWidth={1.8} />
+          <span>{permissionModeLabel(chat.permissionMode)}</span>
+          <ChevronDown className="i sm" strokeWidth={1.8} />
+        </button>
         <button
           ref={setModelEl}
           type="button"
@@ -316,6 +431,17 @@ export function Composer({ chat }: { chat: ChatMeta }): React.JSX.Element {
           <Ring pct={pct} />
           <span className="num">{pct}%</span>
         </span>
+        {busy && !empty && (
+          <button
+            type="button"
+            className="send stop"
+            title="Stop and send (Ctrl+Enter)"
+            aria-label="Stop and send"
+            onClick={() => send(true)}
+          >
+            <Square className="i sm" strokeWidth={1.8} style={{ fill: 'currentColor' }} />
+          </button>
+        )}
         {busy && empty ? (
           <button
             type="button"
@@ -333,12 +459,42 @@ export function Composer({ chat }: { chat: ChatMeta }): React.JSX.Element {
             title="Send (Enter)"
             aria-label="Send"
             disabled={empty}
-            onClick={send}
+            onClick={() => send()}
           >
             <ArrowUp className="i sm" strokeWidth={1.8} />
           </button>
         )}
       </div>
+      {popover === 'mode' && (
+        <Popover anchor={modeEl} onClose={() => setPopover(null)}>
+          {PERMISSION_MODES.map((m) => {
+            const Icon = MODE_ICONS[m.id]
+            return (
+              <button
+                key={m.id}
+                type="button"
+                role="menuitem"
+                className={`pop-item${chat.permissionMode === m.id ? ' sel' : ''}`}
+                onClick={() => {
+                  updateChat(chatId, { permissionMode: m.id })
+                  setPopover(null)
+                  showToast(`${m.label}${started ? ' from the next message' : ''}`)
+                }}
+              >
+                <Icon className="i sm" strokeWidth={1.8} />
+                <span className="pi-main">
+                  <div>{m.label}</div>
+                  <div className="pi-desc">{m.description}</div>
+                </span>
+                <span className="check">
+                  <Check className="i sm" strokeWidth={1.8} />
+                </span>
+              </button>
+            )
+          })}
+          <div className="pop-foot">Shift+Tab cycles the mode.</div>
+        </Popover>
+      )}
       {popover === 'model' && (
         <ModelPopover
           anchor={modelEl}

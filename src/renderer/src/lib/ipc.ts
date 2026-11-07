@@ -26,6 +26,10 @@ export function useIpcBootstrap(): void {
     void store.loadProjects()
     void store.loadBoards()
     api.sync.getStatus().then(store.setSyncStatus)
+    api.rate
+      .get()
+      .then((limits) => useStore.getState().setRateLimits(limits))
+      .catch((error) => console.error(error))
 
     let chatsPushed = false
     api.chat
@@ -51,6 +55,7 @@ export function useIpcBootstrap(): void {
       chatsPushed = true
       useStore.getState().setChats(chats)
     })
+    const unsubRate = api.rate.onChanged((limits) => useStore.getState().setRateLimits(limits))
     const unsubItems = api.chat.onItems((event) => useStore.getState().applyItems(event))
 
     const applyInset = (px: number): void =>
@@ -92,6 +97,7 @@ export function useIpcBootstrap(): void {
       unsubSyncStatus()
       unsubChats()
       unsubItems()
+      unsubRate()
       unsubInset()
     }
   }, [])

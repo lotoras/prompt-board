@@ -3,8 +3,11 @@ import { IPC_CHANNELS } from '../shared/types'
 import type {
   ChatCreateInput,
   ChatPatch,
+  ChatRestartMode,
+  ChatRewindInput,
   ChatSendInput,
   KanbanMutation,
+  PermissionDecision,
   PlanDecision,
   PersistedTerminalsState,
   ProjectInput,
@@ -181,6 +184,24 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     (_event, chatId: string, toolUseId: string, decision: PlanDecision) =>
       chatService.decidePlan(chatId, toolUseId, decision)
   )
+  ipcMain.handle(
+    IPC_CHANNELS.chat.decidePermission,
+    (_event, chatId: string, toolUseId: string, decision: PermissionDecision) =>
+      chatService.decidePermission(chatId, toolUseId, decision)
+  )
+  ipcMain.handle(IPC_CHANNELS.chat.rewind, (_event, input: ChatRewindInput) =>
+    chatService.rewind(input)
+  )
+  ipcMain.handle(IPC_CHANNELS.chat.restart, (_event, chatId: string, mode: ChatRestartMode) =>
+    chatService.restart(chatId, mode)
+  )
+  ipcMain.handle(IPC_CHANNELS.chat.listSessions, (_event, projectKey: string) =>
+    chatService.listSessions(projectKey)
+  )
+  ipcMain.handle(IPC_CHANNELS.chat.listCommands, (_event, chatId: string) =>
+    chatService.listCommands(chatId)
+  )
+  ipcMain.handle(IPC_CHANNELS.rate.get, () => chatService.getRateLimits())
   ipcMain.handle(IPC_CHANNELS.chat.close, (_event, chatId: string) => chatService.close(chatId))
   ipcMain.handle(IPC_CHANNELS.chat.history, (_event, chatId: string) => chatService.history(chatId))
   ipcMain.handle(IPC_CHANNELS.chat.setActive, (_event, projectKey: string, tab: string) =>

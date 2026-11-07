@@ -5,7 +5,7 @@ import { promises as fs } from 'fs'
 import os from 'os'
 import { basename, join } from 'path'
 import { pathToFileURL } from 'url'
-import { DEFAULT_TOGGLES } from '../../shared/chat'
+import { DEFAULT_PERMISSION_MODE, DEFAULT_TOGGLES } from '../../shared/chat'
 import {
   IPC_CHANNELS,
   type ChatCreateInput,
@@ -15,12 +15,18 @@ import {
   type ChatMeta,
   type ChatMode,
   type ChatPatch,
+  type ChatRestartMode,
+  type ChatRewindInput,
   type ChatSendInput,
+  type PastSession,
+  type PermissionDecision,
   type PersistedChat,
   type PersistedChatsState,
   type PlanDecision,
+  type RateLimits,
   type SessionInfo,
-  type SessionsSnapshot
+  type SessionsSnapshot,
+  type SlashCommandInfo
 } from '../../shared/types'
 import { getBoards, mutateKanban } from '../kanban/store'
 import { gitInfo, prepareWorkspace } from '../git/git'
@@ -36,10 +42,13 @@ import {
 } from '../sessions/watcher'
 import { readImage } from './attachments'
 import { loadClaudeDefaults } from './defaults'
+import { createRateLimitTracker } from './rateLimits'
 import { createChatRunner, type ChatRunner } from './runner'
+import { listProjectSessions } from './sessionIndex'
 import { loadChatsState, saveChatsState } from './store'
 import {
   createParserState,
+  dropItemsFrom,
   getItems,
   getMeta,
   parseLines,
@@ -50,6 +59,9 @@ const SDK_MODULE = '@anthropic-ai/claude-agent-sdk'
 const BROADCAST_MS = 50
 const TITLE_MAX = 60
 const PLACEHOLDER_TITLES = new Set(['New chat', 'Chat'])
+const COMMANDS_TTL_MS = 10 * 60 * 1000
+const RATE_FIRST_PROBE_MS = 5000
+const RATE_PROBE_EVERY_MS = 10 * 60 * 1000
 
 interface Live {
   mode: ChatMode
@@ -79,6 +91,9 @@ interface Ctx {
   broadcastTimer: ReturnType<typeof setTimeout> | null
   saveChain: Promise<void>
   ready: Promise<void>
+  rate: ReturnType<typeof createRateLimitTracker>
+  rateTimers: ReturnType<typeof setTimeout>[]
+  commandsCache: Map<string, { at: number; list: SlashCommandInfo[] }>
 }
 
 let ctx: Ctx | null = null
@@ -216,6 +231,7 @@ function externalMeta(session: SessionInfo, projectKey: string): ChatMeta {
     model: session.model ?? parserMeta?.model ?? '',
     effort: parserMeta?.effort ?? 'high',
     toggles: DEFAULT_TOGGLES,
+    permissionMode: DEFAULT_PERMISSION_MODE,
     contextTokens: parserMeta?.contextTokens,
     totalTokens: session.totalTokens ?? parserMeta?.totalTokens,
     status: session.status,
@@ -395,7 +411,10 @@ export function initChatService(getWindow: () => BrowserWindow | null): void {
     unsubscribe: () => {},
     broadcastTimer: null,
     saveChain: Promise.resolve(),
-    ready: Promise.resolve()
+    ready: Promise.resolve(),
+    rate: createRateLimitTracker(Date.now),
+    rateTimers: [],
+    commandsCache: new Map()
   }
   ctx = c
 
@@ -405,6 +424,9 @@ export function initChatService(getWindow: () => BrowserWindow | null): void {
     readImage,
     parserFor,
     emitItems: sendItems,
+    onRateLimit(info) {
+      if (c.rate.applyEvent(info)) broadcastRate()
+    },
     emitStatus(chatId, status, waitingFor) {
       const chat = findOwn(chatId)
       if (!chat) return
@@ -412,6 +434,7 @@ export function initChatService(getWindow: () => BrowserWindow | null): void {
         overlay.delete(chat.sessionId)
         chat.updatedAt = Date.now()
         void persist()
+        void refreshRate(chatId)
       } else {
         const prev = overlay.get(chat.sessionId)
         if (!prev || prev.status !== status || prev.waitingFor !== waitingFor) {
@@ -430,6 +453,11 @@ export function initChatService(getWindow: () => BrowserWindow | null): void {
       if (patch.contextTokens !== undefined) live.contextTokens = patch.contextTokens
       if (patch.contextWindow !== undefined) live.contextWindow = patch.contextWindow
       c.live.set(chatId, live)
+      const own = findOwn(chatId)
+      if (patch.permissionMode && own && own.permissionMode !== patch.permissionMode) {
+        own.permissionMode = patch.permissionMode
+        void persist()
+      }
       scheduleBroadcast()
     }
   })
@@ -442,6 +470,41 @@ export function initChatService(getWindow: () => BrowserWindow | null): void {
     c.snapshot = (await buildCurrentSnapshot().catch(() => null)) ?? c.snapshot
     scheduleBroadcast()
   })().catch((err) => console.error('chat service init failed', err))
+
+  const probe = (): void => void probeRate()
+  const first = setTimeout(() => {
+    probe()
+    const every = setInterval(probe, RATE_PROBE_EVERY_MS)
+    every.unref?.()
+    c.rateTimers.push(every)
+  }, RATE_FIRST_PROBE_MS)
+  c.rateTimers.push(first)
+  for (const t of c.rateTimers) t.unref?.()
+}
+
+function broadcastRate(): void {
+  const win = need().getWindow()
+  if (win && !win.isDestroyed()) win.webContents.send(IPC_CHANNELS.rate.changed, need().rate.get())
+}
+
+async function refreshRate(chatId?: string): Promise<void> {
+  const c = ctx
+  if (!c) return
+  const resp = await c.runner.usage(chatId)
+  if (resp !== null && c.rate.applyUsage(resp)) broadcastRate()
+}
+
+async function probeRate(): Promise<void> {
+  const c = ctx
+  if (!c) return
+  await c.ready
+  const cwd = (await listProjects().catch(() => []))[0]?.basePath ?? os.homedir()
+  const resp = await c.runner.probeUsage(cwd)
+  if (ctx === c && resp !== null && c.rate.applyUsage(resp)) broadcastRate()
+}
+
+async function getRateLimits(): Promise<RateLimits> {
+  return need().rate.get()
 }
 
 async function ready(): Promise<Ctx> {
@@ -489,6 +552,7 @@ async function create(input: ChatCreateInput): Promise<ChatCreateResult> {
     model: defaults.model,
     effort: defaults.effort,
     toggles: DEFAULT_TOGGLES,
+    permissionMode: defaults.permissionMode,
     started: Boolean(input.resumeSessionId),
     ...(input.cardId ? { cardId: input.cardId } : {}),
     createdAt: now,
@@ -510,15 +574,24 @@ async function update(chatId: string, patch: ChatPatch): Promise<ChatMeta> {
   const c = await ready()
   const chat = findOwn(chatId)
   if (!chat) throw new Error(`Unknown chat: ${chatId}`)
-  const before = { model: chat.model, effort: chat.effort, ultra: chat.toggles.ultra }
+  const before = {
+    model: chat.model,
+    effort: chat.effort,
+    ultra: chat.toggles.ultra,
+    permissionMode: chat.permissionMode
+  }
   if (patch.model !== undefined) chat.model = patch.model
   if (patch.effort !== undefined) chat.effort = patch.effort
   if (patch.toggles !== undefined) chat.toggles = patch.toggles
   if (patch.title !== undefined) chat.title = patch.title
+  if (patch.permissionMode !== undefined) chat.permissionMode = patch.permissionMode
   chat.updatedAt = Date.now()
 
   if (c.runner.isRunning(chatId)) {
     if (chat.model !== before.model) await c.runner.setModel(chatId, chat.model)
+    if (chat.permissionMode !== before.permissionMode) {
+      await c.runner.setPermissionMode(chatId, chat.permissionMode)
+    }
     if (chat.effort !== before.effort || chat.toggles.ultra !== before.ultra) {
       await c.runner.setEffort(chatId, chat.effort, chat.toggles.ultra)
     }
@@ -562,7 +635,8 @@ async function send(input: ChatSendInput): Promise<void> {
 
     await c.runner.send(
       { ...(metaFor(chat.chatId) as ChatMeta), started: wasStarted },
-      { text: input.text, attachments: input.attachments, toggles: input.toggles }
+      { text: input.text, attachments: input.attachments, toggles: input.toggles },
+      { interrupt: input.interrupt }
     )
     chat.started = true
     changed()
@@ -597,6 +671,102 @@ async function answer(
 
 async function decidePlan(chatId: string, toolUseId: string, decision: PlanDecision): Promise<void> {
   need().runner.decidePlan(chatId, toolUseId, decision)
+}
+
+async function decidePermission(
+  chatId: string,
+  toolUseId: string,
+  decision: PermissionDecision
+): Promise<void> {
+  need().runner.decidePermission(chatId, toolUseId, decision)
+}
+
+async function restart(chatId: string, mode: ChatRestartMode): Promise<ChatMeta> {
+  const c = await ready()
+  const chat = findOwn(chatId)
+  if (!chat) throw new Error(`Unknown chat: ${chatId}`)
+  c.runner.close(chatId)
+  c.overlay.delete(chat.sessionId)
+  if (mode === 'fresh') {
+    chat.sessionId = randomUUID()
+    chat.started = false
+    chat.title = 'New chat'
+    chat.updatedAt = Date.now()
+    c.parsers.delete(chatId)
+    c.tails.delete(chatId)
+    c.histories.delete(chatId)
+    c.firstSends.delete(chatId)
+    sendItems({ chatId, reset: [] })
+    changed()
+  } else {
+    scheduleBroadcast()
+  }
+  void refreshSnapshotNow(c.getWindow)
+  return metaFor(chatId) as ChatMeta
+}
+
+async function rewind(input: ChatRewindInput): Promise<void> {
+  const c = await ready()
+  const chat = findOwn(input.chatId)
+  if (!chat) throw new Error('This session is read-only here')
+  await ensureHistory(input.chatId)
+  const parser = parserFor(input.chatId)
+  const edited = getItems(parser).find((i) => i.id === input.userItemId)
+  if (edited?.kind !== 'user') throw new Error('Message not found')
+  const send_ = (): Promise<void> =>
+    send({
+      chatId: input.chatId,
+      text: input.text,
+      attachments: input.attachments,
+      toggles: input.toggles
+    })
+
+  if (edited.parentUuid == null) {
+    await restart(input.chatId, 'fresh')
+    return send_()
+  }
+  const res = await c.runner.rewind(metaFor(input.chatId) as ChatMeta, {
+    forkFrom: edited.parentUuid,
+    userUuid: edited.id,
+    revertFiles: input.revertFiles
+  })
+  dropItemsFrom(parser, edited.id)
+  sendItems({ chatId: input.chatId, reset: getItems(parser) })
+  if (res.error) {
+    sendItems({
+      chatId: input.chatId,
+      upsert: [
+        {
+          kind: 'system',
+          id: `err-${randomUUID()}`,
+          tone: 'error',
+          text: `Could not restore files: ${res.error}`
+        }
+      ]
+    })
+  }
+  return send_()
+}
+
+async function listSessions(projectKey: string): Promise<PastSession[]> {
+  const c = await ready()
+  const past = await listProjectSessions(projectKey)
+  const open = new Map(c.state.chats.map((chat) => [chat.sessionId, chat.chatId]))
+  return past.map((s) => {
+    const openChatId = open.get(s.sessionId)
+    return openChatId ? { ...s, openChatId } : s
+  })
+}
+
+async function listCommands(chatId: string): Promise<SlashCommandInfo[]> {
+  const c = await ready()
+  const cwd = chatIdentity(chatId)?.cwd
+  if (!cwd) return []
+  const hit = c.commandsCache.get(cwd)
+  if (hit && Date.now() - hit.at < COMMANDS_TTL_MS) return hit.list
+  const list = (await c.runner.commands(chatId)) ?? (await c.runner.probeCommands(cwd))
+  if (list.length) c.commandsCache.set(cwd, { at: Date.now(), list })
+  return list
 }
 
 async function close(chatId: string): Promise<void> {
@@ -667,6 +837,10 @@ async function shutdown(): Promise<void> {
   const c = ctx
   if (!c) return
   c.runner.closeAll()
+  for (const t of c.rateTimers) {
+    clearTimeout(t)
+    clearInterval(t)
+  }
   c.unsubscribe()
   setStatusOverlayProvider(null)
   if (c.broadcastTimer) clearTimeout(c.broadcastTimer)
@@ -683,6 +857,12 @@ export const chatService = {
   interrupt,
   answer,
   decidePlan,
+  decidePermission,
+  rewind,
+  restart,
+  listSessions,
+  listCommands,
+  getRateLimits,
   close,
   history,
   setActive,

@@ -11,6 +11,7 @@ export type RenderBlock =
   | { type: 'agent'; item: Of<'agent'> }
   | { type: 'question'; item: Of<'question'> }
   | { type: 'plan'; item: Of<'plan'> }
+  | { type: 'permission'; item: Of<'permission'> }
   | { type: 'system'; item: Of<'system'> }
   | { type: 'command'; item: Of<'command'> }
 
@@ -53,6 +54,7 @@ export function groupItems(items: ChatItem[]): RenderBlock[] {
     for (const item of turn) {
       if (item.kind === 'question') blocks.push({ type: 'question', item })
       else if (item.kind === 'plan') blocks.push({ type: 'plan', item })
+      else if (item.kind === 'permission') blocks.push({ type: 'permission', item })
     }
   })
   return blocks
