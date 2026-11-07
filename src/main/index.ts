@@ -10,6 +10,7 @@ import { startSessionsWatcher, stopSessionsWatcher } from './sessions/watcher'
 import { startSync, stopSync } from './sync/engine'
 import { attachWindowInset } from './window/inset'
 import { restoreLog } from './lib/restoreLog'
+import { profileUserDataPath } from './lib/profile'
 
 process.on('uncaughtException', (err) => {
   console.error('[main] uncaughtException', err)
@@ -20,6 +21,10 @@ process.on('unhandledRejection', (reason) => {
 })
 
 let mainWindow: BrowserWindow | null = null
+
+// Must run before the single-instance lock, which is keyed to userData.
+const profileDir = profileUserDataPath(app.getPath('appData'), process.env.PROMPT_BOARD_PROFILE)
+if (profileDir) app.setPath('userData', profileDir)
 
 const gotLock = app.requestSingleInstanceLock()
 

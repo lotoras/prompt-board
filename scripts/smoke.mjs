@@ -6,7 +6,9 @@ import crypto from 'node:crypto'
 import http from 'node:http'
 
 const CDP_HOST = '127.0.0.1'
-const CDP_PORT = 9222
+const portArg = process.argv.indexOf('--port')
+const CDP_PORT =
+  Number(portArg >= 0 ? process.argv[portArg + 1] : process.env.CDP_PORT) || 9222
 
 function httpGetJson(path) {
   return new Promise((resolve, reject) => {

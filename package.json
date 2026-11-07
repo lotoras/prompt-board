@@ -19,7 +19,9 @@
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "dev:isolated": "node scripts/dev-isolated.mjs",
+    "smoke:isolated": "node scripts/smoke.mjs --port 9223"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
