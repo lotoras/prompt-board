@@ -41,6 +41,15 @@ export interface ParserState {
 const RESULT_MAX = 120
 const SUMMARY_MAX = 100
 const IGNORED_USER_PREFIXES = ['<local-command-caveat>', '<local-command-stdout>', '<system-reminder>']
+/** Claude Code records a stopped turn as a plain user line; it is not something the user typed. */
+const INTERRUPT_MARKER = /^\[Request interrupted by user/
+
+function plainUserText(content: unknown): string {
+  if (typeof content === 'string') return content.trim()
+  if (!Array.isArray(content) || content.length !== 1) return ''
+  const block = content[0]
+  return isObj(block) && block.type === 'text' && typeof block.text === 'string' ? block.text.trim() : ''
+}
 const DIFF_TOOLS = new Set(['Edit', 'Write', 'MultiEdit'])
 const PATH_TOOLS = new Set(['Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 
@@ -211,6 +220,10 @@ function applyToolResult(
 function applyUser(state: ParserState, record: TranscriptRecord, out: Map<string, ChatItem>): void {
   if (record.isMeta) return
   const content = record.message?.content
+  if (INTERRUPT_MARKER.test(plainUserText(content))) {
+    put(state, { kind: 'system', id: record.uuid ?? `rec-${++state.seq}`, tone: 'info', text: 'Stopped' }, out)
+    return
+  }
   if (typeof content === 'string') {
     if (IGNORED_USER_PREFIXES.some((p) => content.trimStart().startsWith(p))) return
     const name = /<command-name>([\s\S]*?)<\/command-name>/.exec(content)
@@ -367,6 +380,7 @@ function applyAssistant(
 
 function isPromptRecord(record: TranscriptRecord): boolean {
   if (record.type !== 'user' || record.isSidechain === true || record.isMeta) return false
+  if (INTERRUPT_MARKER.test(plainUserText(record.message?.content))) return false
   const content = record.message?.content
   if (typeof content === 'string') return true
   return (

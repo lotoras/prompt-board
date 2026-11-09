@@ -20,6 +20,21 @@ const assistantRec = (model: string) => ({
 })
 
 describe('chat/sessionIndex summarizeTranscript', () => {
+  it('uses a slash command with arguments as the first prompt, in either tag order', () => {
+    const a = lines(userRec('<command-name>/cc-enhance</command-name>\n<command-args>fix the chime</command-args>', { cwd: 'C:\\p' }))
+    expect(summarizeTranscript(a, '').firstPrompt).toBe('/cc-enhance fix the chime')
+    const b = lines(userRec('<command-message>ai-brain:cc-enhance</command-message>\n<command-name>/ai-brain:cc-enhance</command-name>\n<command-args>add tests</command-args>', { cwd: 'C:\\p' }))
+    expect(summarizeTranscript(b, '').firstPrompt).toBe('/ai-brain:cc-enhance add tests')
+  })
+
+  it('skips commands without arguments and interrupt markers, so the real prompt wins', () => {
+    const head = lines(
+      userRec('<command-name>/model</command-name>\n<command-args></command-args>', { cwd: 'C:\\p' }),
+      userRec('[Request interrupted by user]'),
+      userRec('the real question')
+    )
+    expect(summarizeTranscript(head, '').firstPrompt).toBe('the real question')
+  })
   it('takes cwd from the first record that has one', () => {
     const head = lines(
       { type: 'summary' },
@@ -180,6 +195,19 @@ describe('chat/sessionIndex listProjectSessions', () => {
 
     const out = await listProjectSessions(PROJECT, { projectsDir: dir, offset: 1, limit: 1 })
     expect(out.map((s) => s.sessionId)).toEqual(['b'])
+  })
+
+  it('finds a first prompt that sits behind more than 64 KB of startup data', async () => {
+    const padding = { type: 'attachment', cwd: CWD, attachment: { type: 'hook_success', stdout: 'x'.repeat(90_000) } }
+    await write('enc-a', 'big.jsonl', lines(padding, userRec('late prompt', { cwd: CWD })), 1_000)
+    const out = await listProjectSessions(PROJECT, { projectsDir: dir })
+    expect(out.map((s) => s.firstPrompt)).toEqual(['late prompt'])
+  })
+
+  it('lists a session that has a title even when no prompt can be found', async () => {
+    await write('enc-a', 't.jsonl', lines({ type: 'attachment', cwd: CWD }, { type: 'ai-title', aiTitle: 'Named session' }), 1_000)
+    const out = await listProjectSessions(PROJECT, { projectsDir: dir })
+    expect(out.map((s) => s.title)).toEqual(['Named session'])
   })
 
   it('honours limit', async () => {

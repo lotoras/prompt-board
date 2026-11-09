@@ -6,8 +6,16 @@ import { pathKey } from '../../shared/pathKey'
 import type { PastSession } from '../../shared/types'
 
 const CHUNK = 64 * 1024
+/** Large startup hooks can push the first prompt far into the file; look this far before giving up. */
+const WIDE_HEAD = 1024 * 1024
 const PROMPT_MAX = 120
-const SKIP_PREFIXES = ['<command-name>', '<local-command-', '<system-reminder>']
+const SKIP_PREFIXES = [
+  '<command-name>',
+  '<command-message>',
+  '<local-command-',
+  '<system-reminder>',
+  '[Request interrupted'
+]
 const WORKTREE_MARK = '/.claude/worktrees/'
 
 type Obj = Record<string, unknown>
@@ -28,17 +36,27 @@ function parseRecords(text: string): Obj[] {
   return out
 }
 
-function promptText(rec: Obj): string {
+function userText(rec: Obj): string {
   if (rec.type !== 'user' || rec.isMeta === true) return ''
   const content = (rec.message as Obj | undefined)?.content
-  let text = ''
-  if (typeof content === 'string') text = content
-  else if (Array.isArray(content)) {
-    text = content
-      .map((b) => (typeof b === 'object' && b !== null && (b as Obj).type === 'text' ? String((b as Obj).text ?? '') : ''))
-      .filter(Boolean)
-      .join('\n')
-  }
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .map((b) => (typeof b === 'object' && b !== null && (b as Obj).type === 'text' ? String((b as Obj).text ?? '') : ''))
+    .filter(Boolean)
+    .join('\n')
+}
+
+/** `/name args` for a slash command run with arguments; commands without any say nothing about the topic. */
+function commandPrompt(rec: Obj): string {
+  const text = userText(rec)
+  const name = /<command-name>([\s\S]*?)<\/command-name>/.exec(text)?.[1].trim()
+  const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(text)?.[1].trim()
+  return name && args ? `${name} ${args}` : ''
+}
+
+function promptText(rec: Obj): string {
+  const text = userText(rec)
   const trimmed = text.trimStart()
   if (!trimmed || SKIP_PREFIXES.some((p) => trimmed.startsWith(p))) return ''
   return text
@@ -65,7 +83,7 @@ export function summarizeTranscript(head: string, tail: string): Summary {
   const cwd = headRecs.find((r) => typeof r.cwd === 'string')?.cwd as string | undefined
   let firstPrompt = ''
   for (const rec of headRecs) {
-    const text = promptText(rec)
+    const text = promptText(rec) || commandPrompt(rec)
     if (!text) continue
     const line = parseDirectives(text).text.split(/\r?\n/).find((l) => l.trim()) ?? ''
     firstPrompt = line.trim().slice(0, PROMPT_MAX)
@@ -81,7 +99,11 @@ export function summarizeTranscript(head: string, tail: string): Summary {
   }
 }
 
-async function readChunks(path: string, size: number): Promise<{ head: string; tail: string }> {
+async function readChunks(
+  path: string,
+  size: number,
+  headBytes = CHUNK
+): Promise<{ head: string; tail: string }> {
   const fh = await fs.open(path, 'r')
   try {
     const read = async (pos: number, len: number): Promise<string> => {
@@ -89,7 +111,7 @@ async function readChunks(path: string, size: number): Promise<{ head: string; t
       const { bytesRead } = await fh.read(buf, 0, len, pos)
       return buf.toString('utf8', 0, bytesRead)
     }
-    const head = await read(0, Math.min(CHUNK, size))
+    const head = await read(0, Math.min(headBytes, size))
     const tail = size <= CHUNK ? head : await read(size - CHUNK, CHUNK)
     return { head, tail }
   } finally {
@@ -104,7 +126,11 @@ async function summarizeFile(path: string, mtimeMs: number, size: number): Promi
   if (hit && hit.mtimeMs === mtimeMs && hit.size === size) return hit.summary
   try {
     const { head, tail } = await readChunks(path, size)
-    const summary = summarizeTranscript(head, tail)
+    let summary = summarizeTranscript(head, tail)
+    if (!summary.firstPrompt && size > CHUNK) {
+      const wide = await readChunks(path, size, WIDE_HEAD)
+      summary = summarizeTranscript(wide.head, tail)
+    }
     cache.set(path, { mtimeMs, size, summary })
     return summary
   } catch {
@@ -156,7 +182,7 @@ export async function listProjectSessions(
   for (const f of files) {
     if (out.length >= limit) break
     const s = await summarizeFile(f.path, f.mtimeMs, f.size)
-    if (!s?.cwd || !s.firstPrompt) continue
+    if (!s?.cwd || !s.title) continue
     const key = pathKey(s.cwd)
     const worktreeRel = worktreeOf(key, projectKey)
     if (key !== projectKey && !worktreeRel) continue

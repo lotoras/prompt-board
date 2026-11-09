@@ -9,6 +9,17 @@ import {
 
 type Parent = string | null
 
+describe('interrupt markers', () => {
+  it('renders [Request interrupted by user] as a Stopped note, not a user message', () => {
+    const s = createParserState()
+    applyRecord(s, { type: 'user', uuid: 'u1', parentUuid: null, message: { role: 'user', content: 'hello' } })
+    applyRecord(s, { type: 'user', uuid: 'u2', parentUuid: 'u1', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] } })
+    const items = getItems(s)
+    expect(items.filter((i) => i.kind === 'user')).toHaveLength(1)
+    expect(items).toContainEqual(expect.objectContaining({ kind: 'system', tone: 'info', text: 'Stopped' }))
+  })
+})
+
 const prompt = (uuid: string, parentUuid: Parent, text = uuid): TranscriptRecord => ({
   type: 'user',
   uuid,
