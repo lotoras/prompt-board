@@ -19,6 +19,13 @@ export const CLAUDE_ACCOUNTS: ReadonlyArray<{ id: ClaudeAccountId; label: string
   { id: 2, label: 'Claude 2' }
 ]
 
+export interface AccountInfo {
+  id: ClaudeAccountId
+  label: string
+  /** False when this device has no config dir for the account. */
+  available: boolean
+}
+
 export type SessionStatus = 'busy' | 'idle' | 'waiting'
 
 export interface SessionInfo {
@@ -287,6 +294,8 @@ export interface ChatMeta {
   effort: EffortLevel
   toggles: ChatToggles
   permissionMode: PermissionModeId
+  /** The Claude login this chat runs under. Fixed after the first send. */
+  account: ClaudeAccountId
   contextTokens?: number
   contextWindow?: number
   totalTokens?: number
@@ -314,7 +323,8 @@ export type PersistedChat = Omit<
   | 'contextTokens'
   | 'contextWindow'
   | 'totalTokens'
->
+  | 'account'
+> & { account?: ClaudeAccountId }
 
 export interface PersistedChatsState {
   /** Own chats in tab order (all projects). */
@@ -458,6 +468,8 @@ export interface ChatCreateInput {
   /** Open an existing session (e.g. a card's linked session) as a chat. */
   resumeSessionId?: string
   title?: string
+  /** Ignored when resuming: a session stays on the account that owns its transcript. */
+  account?: ClaudeAccountId
 }
 
 export interface ChatCreateResult {
@@ -466,7 +478,7 @@ export interface ChatCreateResult {
 }
 
 export type ChatPatch = Partial<
-  Pick<ChatMeta, 'model' | 'effort' | 'toggles' | 'title' | 'permissionMode'>
+  Pick<ChatMeta, 'model' | 'effort' | 'toggles' | 'title' | 'permissionMode' | 'account'>
 >
 
 export interface ChatSendInput {
@@ -513,6 +525,8 @@ export interface PastSession {
   model?: string
   /** An own chat tab already shows this session. */
   openChatId?: string
+  /** Set only for sessions of Claude 2. */
+  account?: ClaudeAccountId
 }
 
 /** A slash command or skill the composer can suggest after `/` (from the SDK's supportedCommands). */
@@ -541,6 +555,8 @@ export interface RateLimits {
   available: boolean
   windows: RateLimitWindow[]
   updatedAt: number
+  /** Claude 2, when this device has that account and it reports limits. */
+  second?: RateLimits
 }
 
 export interface GitInfo {
@@ -642,6 +658,9 @@ export const IPC_CHANNELS = {
     get: 'rate:get',
     changed: 'rate:changed'
   },
+  accounts: {
+    list: 'accounts:list'
+  },
   attachments: {
     pick: 'attachments:pick',
     describe: 'attachments:describe',
@@ -739,6 +758,9 @@ export interface Api {
   rate: {
     get(): Promise<RateLimits>
     onChanged(cb: (limits: RateLimits) => void): () => void
+  }
+  accounts: {
+    list(): Promise<AccountInfo[]>
   }
   attachments: {
     /** Opens the native file picker (multi-select). */

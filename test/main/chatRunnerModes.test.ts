@@ -195,6 +195,21 @@ describe('chat/runner modes, permissions, rewind, probes', () => {
 
   // -------------------------------------------------------------------------
   describe('options and mode', () => {
+    it('runs a Claude 2 chat with that account config dir', async () => {
+      const q = await openChat(makeChat({ account: 2 }))
+      expect((q.options.env as Record<string, string>).CLAUDE_CONFIG_DIR).toMatch(/\.claude-2$/)
+    })
+
+    it('never lets a Claude 1 chat inherit a config dir', async () => {
+      process.env.CLAUDE_CONFIG_DIR = 'C:\\elsewhere'
+      try {
+        const q = await openChat(makeChat({ account: 1 }))
+        expect(q.options.env).not.toHaveProperty('CLAUDE_CONFIG_DIR')
+      } finally {
+        delete process.env.CLAUDE_CONFIG_DIR
+      }
+    })
+
     it('opens the query with file checkpointing and the chat permission mode', async () => {
       const q = await openChat(makeChat({ permissionMode: 'plan' }))
       expect(q.options.enableFileCheckpointing).toBe(true)
@@ -230,7 +245,7 @@ describe('chat/runner modes, permissions, rewind, probes', () => {
       const q = await openChat()
       const info = { status: 'allowed', rateLimitType: 'five_hour', utilization: 0.4 }
       q.emit({ type: 'rate_limit_event', rate_limit_info: info })
-      await vi.waitFor(() => expect(onRateLimit).toHaveBeenCalledWith(info))
+      await vi.waitFor(() => expect(onRateLimit).toHaveBeenCalledWith(info, 1))
     })
   })
 

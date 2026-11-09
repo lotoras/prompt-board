@@ -1,5 +1,5 @@
 import { formatResetIn } from '../../../../shared/chat'
-import type { RateLimitWindowId } from '../../../../shared/types'
+import type { RateLimitWindowId, RateLimits } from '../../../../shared/types'
 import { useStore } from '../../store'
 
 const LABELS: Record<RateLimitWindowId, string> = {
@@ -11,11 +11,21 @@ const LABELS: Record<RateLimitWindowId, string> = {
 
 const resetIn = (resetsAt: number | undefined): string => formatResetIn(resetsAt, Date.now())
 
-export function RateMeters(): React.JSX.Element | null {
-  const limits = useStore((s) => s.rateLimits)
-  if (!limits || !limits.available || limits.windows.length === 0) return null
+const shows = (l: RateLimits | undefined): l is RateLimits =>
+  Boolean(l?.available && l.windows.length > 0)
+
+function MeterGroup({
+  limits,
+  title,
+  prefix = ''
+}: {
+  limits: RateLimits
+  title?: string
+  prefix?: string
+}): React.JSX.Element {
   return (
-    <div className="rate-meters">
+    <>
+      {title && <div className="rate-group">{title}</div>}
       {limits.windows.map((w) => {
         const label = LABELS[w.id]
         const pct = Math.max(0, Math.min(100, w.pct))
@@ -26,7 +36,7 @@ export function RateMeters(): React.JSX.Element | null {
             <div
               className="rate-bar"
               role="meter"
-              aria-label={`${label} usage`}
+              aria-label={`${prefix}${label} usage`}
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={w.pct}
@@ -37,6 +47,18 @@ export function RateMeters(): React.JSX.Element | null {
           </div>
         )
       })}
+    </>
+  )
+}
+
+export function RateMeters(): React.JSX.Element | null {
+  const limits = useStore((s) => s.rateLimits)
+  const second = limits?.second
+  if (!limits || (!shows(limits) && !shows(second))) return null
+  return (
+    <div className="rate-meters">
+      {shows(limits) && <MeterGroup limits={limits} title={shows(second) ? 'Claude 1' : undefined} />}
+      {shows(second) && <MeterGroup limits={second} title="Claude 2" prefix="Claude 2 " />}
     </div>
   )
 }

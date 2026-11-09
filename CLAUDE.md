@@ -70,6 +70,7 @@ design/preview.html                # signed-off visual contract
   gets a pre-assigned `sessionId`, so the card link and transcript are known before the first send.
 - The transcript is the source of truth for history; the live SDK stream only adds an overlay.
 - Live sessions started elsewhere show as read-only tabs (`ext:<sessionId>`), live-tailed.
+- Claude 1 / Claude 2: `account` on a chat picks the config dir (`~/.claude` or `~/.claude-2`) through `withAccountEnv` in `src/main/accounts.ts`. Choose it on a draft; it is fixed after the first send.
 - New-chat workspace toggles run `git worktree add` under `<repo>/.claude/worktrees/<slug>`
   (ignored via `.git/info/exclude`) and/or `git switch -c` before the first send.
 - Ultra = `applyFlagSettings({ultracode})` + `ultrathink`; every effort change resends `ultracode`.

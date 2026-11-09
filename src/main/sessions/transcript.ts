@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs'
-import os from 'os'
 import { join } from 'path'
+import type { ClaudeAccountId } from '../../shared/types'
+import { accountConfigDir } from '../accounts'
 
 export interface TranscriptEnrichment {
   aiTitle?: string
@@ -14,8 +15,8 @@ interface FileState extends TranscriptEnrichment {
   totalTokens: number
 }
 
-export function projectsDir(): string {
-  return join(os.homedir(), '.claude', 'projects')
+export function projectsDir(account: ClaudeAccountId = 1): string {
+  return join(accountConfigDir(account), 'projects')
 }
 
 const fileStates = new Map<string, FileState>()
@@ -85,22 +86,23 @@ export async function locateTranscript(sessionId: string): Promise<string | null
     }
   }
 
-  const root = projectsDir()
-  let projectDirs: string[]
-  try {
-    projectDirs = await fs.readdir(root)
-  } catch {
-    return null
-  }
-
-  for (const dir of projectDirs) {
-    const candidate = join(root, dir, `${sessionId}.jsonl`)
+  for (const root of [projectsDir(1), projectsDir(2)]) {
+    let projectDirs: string[]
     try {
-      await fs.access(candidate)
-      sessionPathCache.set(sessionId, candidate)
-      return candidate
+      projectDirs = await fs.readdir(root)
     } catch {
-      // not here, keep scanning
+      continue
+    }
+
+    for (const dir of projectDirs) {
+      const candidate = join(root, dir, `${sessionId}.jsonl`)
+      try {
+        await fs.access(candidate)
+        sessionPathCache.set(sessionId, candidate)
+        return candidate
+      } catch {
+        // not here, keep scanning
+      }
     }
   }
 

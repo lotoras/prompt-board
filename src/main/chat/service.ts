@@ -9,6 +9,7 @@ import { DEFAULT_PERMISSION_MODE, DEFAULT_TOGGLES } from '../../shared/chat'
 import { pathKey } from '../../shared/pathKey'
 import {
   IPC_CHANNELS,
+  type ClaudeAccountId,
   type ChatCreateInput,
   type ChatCreateResult,
   type ChatItem,
@@ -29,6 +30,7 @@ import {
   type SessionsSnapshot,
   type SlashCommandInfo
 } from '../../shared/types'
+import { accountOfPath, listAccounts } from '../accounts'
 import { getBoards, mutateKanban } from '../kanban/store'
 import { gitInfo, prepareWorkspace } from '../git/git'
 import { listProjects } from '../projects/store'
@@ -99,6 +101,7 @@ interface Ctx {
   saveChain: Promise<void>
   ready: Promise<void>
   rate: ReturnType<typeof createRateLimitTracker>
+  rateSecond: ReturnType<typeof createRateLimitTracker>
   rateTimers: ReturnType<typeof setTimeout>[]
   commandsCache: Map<string, { at: number; list: SlashCommandInfo[] }>
 }
@@ -221,6 +224,7 @@ function ownMeta(
     ...chat,
     ...(chat.branch || !parserMeta?.gitBranch ? {} : { branch: parserMeta.gitBranch }),
     title,
+    account: chat.account ?? 1,
     status,
     ...(waitingFor !== undefined ? { waitingFor } : {}),
     ...(acknowledged !== undefined ? { acknowledged } : {}),
@@ -246,6 +250,7 @@ function externalMeta(session: SessionInfo, projectKey: string): ChatMeta {
     effort: parserMeta?.effort ?? 'high',
     toggles: DEFAULT_TOGGLES,
     permissionMode: DEFAULT_PERMISSION_MODE,
+    account: session.account ?? 1,
     contextTokens: parserMeta?.contextTokens,
     totalTokens: session.totalTokens ?? parserMeta?.totalTokens,
     status: session.status,
@@ -342,12 +347,15 @@ async function readNewLines(tail: Tail): Promise<string[]> {
   }
 }
 
-function chatIdentity(chatId: string): { sessionId: string; cwd?: string } | undefined {
+function chatIdentity(
+  chatId: string
+): { sessionId: string; cwd?: string; account: ClaudeAccountId } | undefined {
   const own = findOwn(chatId)
-  if (own) return { sessionId: own.sessionId, cwd: own.cwd }
+  if (own) return { sessionId: own.sessionId, cwd: own.cwd, account: own.account ?? 1 }
   if (chatId.startsWith('ext:')) {
     const sessionId = chatId.slice(4)
-    return { sessionId, cwd: sessionIndex().get(sessionId)?.session.cwd }
+    const session = sessionIndex().get(sessionId)?.session
+    return { sessionId, cwd: session?.cwd, account: session?.account ?? 1 }
   }
   return undefined
 }
@@ -430,6 +438,7 @@ export function initChatService(getWindow: () => BrowserWindow | null): void {
     saveChain: Promise.resolve(),
     ready: Promise.resolve(),
     rate: createRateLimitTracker(Date.now),
+    rateSecond: createRateLimitTracker(Date.now),
     rateTimers: [],
     commandsCache: new Map()
   }
@@ -441,8 +450,8 @@ export function initChatService(getWindow: () => BrowserWindow | null): void {
     readImage,
     parserFor,
     emitItems: sendItems,
-    onRateLimit(info) {
-      if (c.rate.applyEvent(info)) broadcastRate()
+    onRateLimit(info, account) {
+      if (trackerOf(c, account).applyEvent(info)) broadcastRate()
     },
     emitStatus(chatId, status, waitingFor) {
       const chat = findOwn(chatId)
@@ -502,16 +511,27 @@ export function initChatService(getWindow: () => BrowserWindow | null): void {
   for (const t of c.rateTimers) t.unref?.()
 }
 
-function broadcastRate(): void {
-  const win = need().getWindow()
-  if (win && !win.isDestroyed()) win.webContents.send(IPC_CHANNELS.rate.changed, need().rate.get())
+function trackerOf(c: Ctx, account: ClaudeAccountId): Ctx['rate'] {
+  return account === 2 ? c.rateSecond : c.rate
 }
 
-async function refreshRate(chatId?: string): Promise<void> {
+function rateView(c: Ctx): RateLimits {
+  const second = c.rateSecond.get()
+  return second.available ? { ...c.rate.get(), second } : c.rate.get()
+}
+
+function broadcastRate(): void {
+  const c = need()
+  const win = c.getWindow()
+  if (win && !win.isDestroyed()) win.webContents.send(IPC_CHANNELS.rate.changed, rateView(c))
+}
+
+async function refreshRate(chatId: string): Promise<void> {
   const c = ctx
   if (!c) return
   const resp = await c.runner.usage(chatId)
-  if (resp !== null && c.rate.applyUsage(resp)) broadcastRate()
+  const account = findOwn(chatId)?.account ?? 1
+  if (resp !== null && trackerOf(c, account).applyUsage(resp)) broadcastRate()
 }
 
 async function probeRate(): Promise<void> {
@@ -519,12 +539,15 @@ async function probeRate(): Promise<void> {
   if (!c) return
   await c.ready
   const cwd = (await listProjects().catch(() => []))[0]?.basePath ?? os.homedir()
-  const resp = await c.runner.probeUsage(cwd)
-  if (ctx === c && resp !== null && c.rate.applyUsage(resp)) broadcastRate()
+  for (const { id, available } of listAccounts()) {
+    if (!available) continue
+    const resp = await c.runner.probeUsage(cwd, id)
+    if (ctx === c && resp !== null && trackerOf(c, id).applyUsage(resp)) broadcastRate()
+  }
 }
 
 async function getRateLimits(): Promise<RateLimits> {
-  return need().rate.get()
+  return rateView(need())
 }
 
 async function ready(): Promise<Ctx> {
@@ -567,9 +590,13 @@ async function create(input: ChatCreateInput): Promise<ChatCreateResult> {
 
   let cwd = project?.basePath ?? ''
   let resumed: TranscriptMeta | undefined
+  let account: ClaudeAccountId = input.account ?? 1
   if (input.resumeSessionId) {
     resumed = await transcriptMetaOf(input.resumeSessionId)
-    const live = sessionIndex().get(input.resumeSessionId)?.session.cwd
+    const liveSession = sessionIndex().get(input.resumeSessionId)?.session
+    const live = liveSession?.cwd
+    const transcript = await locateTranscript(input.resumeSessionId)
+    account = liveSession?.account ?? (transcript ? accountOfPath(transcript) : account)
     const linked = (await getBoards()).cards.find(
       (card) => card.link?.sessionId === input.resumeSessionId
     )?.link?.cwd
@@ -581,7 +608,7 @@ async function create(input: ChatCreateInput): Promise<ChatCreateResult> {
     ? pathKey(cwd).slice(worktreeMark.length).split('/')[0]
     : undefined
 
-  const defaults = await loadClaudeDefaults()
+  const defaults = await loadClaudeDefaults(account)
   const now = Date.now()
   const chat: PersistedChat = {
     chatId: randomUUID(),
@@ -595,6 +622,7 @@ async function create(input: ChatCreateInput): Promise<ChatCreateResult> {
     effort: resumed?.effort ?? defaults.effort,
     toggles: DEFAULT_TOGGLES,
     permissionMode: defaults.permissionMode,
+    ...(account === 2 ? { account } : {}),
     started: Boolean(input.resumeSessionId),
     ...(input.cardId ? { cardId: input.cardId } : {}),
     createdAt: now,
@@ -627,6 +655,7 @@ async function update(chatId: string, patch: ChatPatch): Promise<ChatMeta> {
   if (patch.toggles !== undefined) chat.toggles = patch.toggles
   if (patch.title !== undefined) chat.title = patch.title
   if (patch.permissionMode !== undefined) chat.permissionMode = patch.permissionMode
+  if (patch.account !== undefined && !chat.started) chat.account = patch.account
   chat.updatedAt = Date.now()
 
   if (c.runner.isRunning(chatId)) {
@@ -829,12 +858,14 @@ async function listSessions(projectKey: string, opts?: { offset?: number }): Pro
 
 async function listCommands(chatId: string): Promise<SlashCommandInfo[]> {
   const c = await ready()
-  const cwd = chatIdentity(chatId)?.cwd
-  if (!cwd) return []
-  const hit = c.commandsCache.get(cwd)
+  const identity = chatIdentity(chatId)
+  const cwd = identity?.cwd
+  if (!identity || !cwd) return []
+  const key = `${identity.account}:${cwd}`
+  const hit = c.commandsCache.get(key)
   if (hit && Date.now() - hit.at < COMMANDS_TTL_MS) return hit.list
-  const list = (await c.runner.commands(chatId)) ?? (await c.runner.probeCommands(cwd))
-  if (list.length) c.commandsCache.set(cwd, { at: Date.now(), list })
+  const list = (await c.runner.commands(chatId)) ?? (await c.runner.probeCommands(cwd, identity.account))
+  if (list.length) c.commandsCache.set(key, { at: Date.now(), list })
   return list
 }
 
@@ -919,6 +950,7 @@ async function openInTui(chatId: string): Promise<{ ptyId: string }> {
     {
       projectKey: chat.projectKey,
       cwd: chat.cwd,
+      account: chat.account ?? 1,
       ...(chat.started ? { resumeSessionId: chat.sessionId } : {})
     },
     () => {

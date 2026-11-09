@@ -1,6 +1,6 @@
-import { Check, GitBranch } from 'lucide-react'
+import { Check, GitBranch, UserRound } from 'lucide-react'
 import { EFFORT_LEVELS, MODEL_OPTIONS } from '../../../../../shared/chat'
-import type { EffortLevel } from '../../../../../shared/types'
+import type { AccountInfo, ClaudeAccountId, EffortLevel } from '../../../../../shared/types'
 import { Popover } from './Popover'
 import { EFFORT_DESCRIPTIONS, modelColor } from './pickerData'
 
@@ -84,6 +84,42 @@ export function EffortPopover({
         </button>
       ))}
       <div className="pop-foot">{foot(started)}</div>
+    </Popover>
+  )
+}
+
+export function AccountPopover({
+  anchor,
+  accounts,
+  current,
+  onPick,
+  onClose
+}: {
+  anchor: HTMLElement | null
+  accounts: AccountInfo[]
+  current: ClaudeAccountId
+  onPick: (account: ClaudeAccountId) => void
+  onClose: () => void
+}): React.JSX.Element {
+  return (
+    <Popover anchor={anchor} onClose={onClose}>
+      {accounts.map((a) => (
+        <button
+          key={a.id}
+          type="button"
+          role="menuitem"
+          disabled={!a.available}
+          className={`pop-item${current === a.id ? ' sel' : ''}`}
+          onClick={() => onPick(a.id)}
+        >
+          <UserRound className="i sm" strokeWidth={1.8} />
+          <span className="pi-main">{a.label}</span>
+          {!a.available && <span className="pi-desc">Not set up on this device</span>}
+          <span className="check">
+            <Check className="i sm" strokeWidth={1.8} />
+          </span>
+        </button>
+      ))}
     </Popover>
   )
 }

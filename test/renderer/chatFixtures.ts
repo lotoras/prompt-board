@@ -12,6 +12,7 @@ export function makeChat(overrides: Partial<ChatMeta> = {}): ChatMeta {
     effort: 'high',
     toggles: { codex: 'off', ultra: false },
     permissionMode: 'bypassPermissions',
+    account: 1,
     status: 'idle',
     mode: 'sdk',
     started: true,

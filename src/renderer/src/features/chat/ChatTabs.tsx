@@ -249,6 +249,7 @@ function ResumePicker({ projectKey }: { projectKey: string }): React.JSX.Element
                       <span>{s.title}</span>
                       {s.worktreeRel && <span className="badge-sm">worktree</span>}
                       {s.openChatId && <span className="badge-sm">open</span>}
+                      {s.account === 2 && <span className="badge-sm">Claude 2</span>}
                     </div>
                     <div className="pi-desc">{s.firstPrompt}</div>
                     <div className="pi-meta">
@@ -328,6 +329,11 @@ export function ChatTabs({ projectKey }: { projectKey: string }): React.JSX.Elem
                 <span className={`dot ${tone}`} />
               </button>
               <span className="tab-title">{chat.title}</span>
+              {chat.account === 2 && (
+                <span className="acct num" title="Claude 2">
+                  2
+                </span>
+              )}
               {chat.mode === 'external' && (
                 <span className="ext" title="Running in another terminal">
                   <Monitor className="i sm" strokeWidth={1.8} />

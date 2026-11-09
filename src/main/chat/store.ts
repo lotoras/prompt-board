@@ -42,6 +42,7 @@ export function migrateFromTerminals(
       effort: defaults.effort,
       toggles: DEFAULT_TOGGLES,
       permissionMode: defaults.permissionMode ?? DEFAULT_PERMISSION_MODE,
+      ...(term.account === 2 ? { account: 2 as const } : {}),
       started: true,
       createdAt: now,
       updatedAt: now

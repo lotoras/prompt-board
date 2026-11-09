@@ -3,6 +3,7 @@ import { PERMISSION_MODES, composePrompt } from '../../shared/chat'
 import type {
   ChatAttachment,
   ChatItem,
+  ClaudeAccountId,
   ChatItemsEvent,
   ChatMeta,
   ChatToggles,
@@ -13,6 +14,7 @@ import type {
   SessionStatus,
   SlashCommandInfo
 } from '../../shared/types'
+import { withAccountEnv } from '../accounts'
 import { applyRecord, chainTip, toolSummary, type ParserState } from './transcriptParser'
 
 /** SDK stream messages are loosely typed at this boundary; each handler narrows what it reads. */
@@ -44,7 +46,7 @@ export interface RunnerDeps {
   emitItems(e: ChatItemsEvent): void
   emitStatus(chatId: string, status: SessionStatus, waitingFor?: string): void
   emitMeta(chatId: string, patch: Partial<ChatMeta>): void
-  onRateLimit?(info: unknown): void
+  onRateLimit?(info: unknown, account: ClaudeAccountId): void
   idleCloseMs?: number
 }
 
@@ -65,8 +67,8 @@ export interface ChatRunner {
   ): Promise<{ filesChanged?: number; error?: string }>
   usage(chatId?: string): Promise<unknown | null>
   commands(chatId: string): Promise<SlashCommandInfo[] | null>
-  probeUsage(cwd: string): Promise<unknown | null>
-  probeCommands(cwd: string): Promise<SlashCommandInfo[]>
+  probeUsage(cwd: string, account?: ClaudeAccountId): Promise<unknown | null>
+  probeCommands(cwd: string, account?: ClaudeAccountId): Promise<SlashCommandInfo[]>
   setModel(chatId: string, model: string): Promise<void>
   setEffort(chatId: string, effort: EffortLevel, ultra: boolean): Promise<void>
   isRunning(chatId: string): boolean
@@ -88,6 +90,7 @@ interface Pending {
 
 interface Slot {
   chatId: string
+  account: ClaudeAccountId
   query: SdkQuery
   queue: Queue<unknown>
   lastUltra: boolean
@@ -319,7 +322,7 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
         return
       }
       case 'rate_limit_event':
-        deps.onRateLimit?.(msg.rate_limit_info)
+        deps.onRateLimit?.(msg.rate_limit_info, slot.account)
         return
     }
   }
@@ -401,11 +404,12 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
   async function withProbe<T>(
     cwd: string,
     fn: (q: SdkQuery) => Promise<T>,
-    extra: Record<string, unknown> = {}
+    extra: Record<string, unknown> = {},
+    account: ClaudeAccountId = 1
   ): Promise<T> {
     const sdk = await deps.loadSdk()
     const queue = createQueue<unknown>()
-    const env: Record<string, string | undefined> = { ...process.env }
+    const env = withAccountEnv(process.env, account)
     delete env.ANTHROPIC_API_KEY
     const query = sdk.query({
       prompt: queue.iterable,
@@ -426,7 +430,8 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
   async function open(chat: ChatMeta): Promise<Slot> {
     const sdk = await deps.loadSdk()
     const queue = createQueue<unknown>()
-    const env: Record<string, string | undefined> = { ...process.env }
+    const account = chat.account ?? 1
+    const env = withAccountEnv(process.env, account)
     delete env.ANTHROPIC_API_KEY
     const fork = forkAt.get(chat.chatId)
     forkAt.delete(chat.chatId)
@@ -452,6 +457,7 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
     startedSessions.add(chat.sessionId)
     const slot: Slot = {
       chatId: chat.chatId,
+      account,
       query,
       queue,
       lastUltra: false,
@@ -630,7 +636,8 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
             if (!res.canRewind) return { error: res.error ?? 'Files cannot be restored' }
             return { filesChanged: res.filesChanged?.length ?? 0 }
           },
-          { resume: chat.sessionId, enableFileCheckpointing: true }
+          { resume: chat.sessionId, enableFileCheckpointing: true },
+          chat.account ?? 1
         )
       } catch (err) {
         return { error: err instanceof Error ? err.message : String(err) }
@@ -659,19 +666,22 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
       }
     },
 
-    async probeUsage(cwd) {
+    async probeUsage(cwd, account = 1) {
       try {
-        return await withProbe(cwd, (q) =>
-          q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true })
+        return await withProbe(
+          cwd,
+          (q) => q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true }),
+          {},
+          account
         )
       } catch {
         return null
       }
     },
 
-    async probeCommands(cwd) {
+    async probeCommands(cwd, account = 1) {
       try {
-        return await withProbe(cwd, (q) => q.supportedCommands())
+        return await withProbe(cwd, (q) => q.supportedCommands(), {}, account)
       } catch {
         return []
       }

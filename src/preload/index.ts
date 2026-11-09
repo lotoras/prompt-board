@@ -165,6 +165,9 @@ const api: Api = {
       return () => ipcRenderer.removeListener(IPC_CHANNELS.rate.changed, listener)
     }
   },
+  accounts: {
+    list: () => ipcRenderer.invoke(IPC_CHANNELS.accounts.list)
+  },
   attachments: {
     pick: () => ipcRenderer.invoke(IPC_CHANNELS.attachments.pick),
     describe: (paths: string[]) => ipcRenderer.invoke(IPC_CHANNELS.attachments.describe, paths),

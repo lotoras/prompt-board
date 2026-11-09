@@ -1,8 +1,8 @@
 import { promises as fs } from 'fs'
-import os from 'os'
 import { join } from 'path'
 import { EFFORT_LEVELS, DEFAULT_PERMISSION_MODE, toPermissionMode } from '../../shared/chat'
-import type { EffortLevel, PermissionModeId } from '../../shared/types'
+import type { ClaudeAccountId, EffortLevel, PermissionModeId } from '../../shared/types'
+import { accountConfigDir } from '../accounts'
 
 export interface ClaudeDefaults {
   model: string
@@ -45,9 +45,9 @@ export function readClaudeDefaults(settings: unknown): ClaudeDefaults {
   return { model, effort: effort ?? FALLBACK.effort, permissionMode }
 }
 
-export async function loadClaudeDefaults(): Promise<ClaudeDefaults> {
+export async function loadClaudeDefaults(account: ClaudeAccountId = 1): Promise<ClaudeDefaults> {
   try {
-    const raw = await fs.readFile(join(os.homedir(), '.claude', 'settings.json'), 'utf-8')
+    const raw = await fs.readFile(join(accountConfigDir(account), 'settings.json'), 'utf-8')
     return readClaudeDefaults(JSON.parse(raw))
   } catch {
     return { ...FALLBACK }

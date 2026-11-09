@@ -1,9 +1,10 @@
 import { promises as fs } from 'fs'
-import os from 'os'
 import { join } from 'path'
 import { parseDirectives } from '../../shared/chat'
 import { pathKey } from '../../shared/pathKey'
 import type { PastSession } from '../../shared/types'
+import { accountOfPath } from '../accounts'
+import { projectsDir } from '../sessions/transcript'
 
 const CHUNK = 64 * 1024
 /** Large startup hooks can push the first prompt far into the file; look this far before giving up. */
@@ -148,31 +149,33 @@ export async function listProjectSessions(
   projectKey: string,
   opts: { projectsDir?: string; limit?: number; offset?: number } = {}
 ): Promise<Indexed[]> {
-  const root = opts.projectsDir ?? join(os.homedir(), '.claude', 'projects')
+  const roots = opts.projectsDir ? [opts.projectsDir] : [projectsDir(1), projectsDir(2)]
   const limit = opts.limit ?? 50
   let toSkip = opts.offset ?? 0
-  let dirs: string[]
-  try {
-    dirs = (await fs.readdir(root, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name)
-  } catch {
-    return []
-  }
   const files: { path: string; sessionId: string; mtimeMs: number; size: number }[] = []
-  for (const dir of dirs) {
-    let names: string[]
+  for (const root of roots) {
+    let dirs: string[]
     try {
-      names = await fs.readdir(join(root, dir))
+      dirs = (await fs.readdir(root, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name)
     } catch {
       continue
     }
-    for (const name of names) {
-      if (!name.endsWith('.jsonl') || name.startsWith('agent-')) continue
-      const path = join(root, dir, name)
+    for (const dir of dirs) {
+      let names: string[]
       try {
-        const st = await fs.stat(path)
-        if (st.isFile()) files.push({ path, sessionId: name.slice(0, -6), mtimeMs: st.mtimeMs, size: st.size })
+        names = await fs.readdir(join(root, dir))
       } catch {
-        // vanished
+        continue
+      }
+      for (const name of names) {
+        if (!name.endsWith('.jsonl') || name.startsWith('agent-')) continue
+        const path = join(root, dir, name)
+        try {
+          const st = await fs.stat(path)
+          if (st.isFile()) files.push({ path, sessionId: name.slice(0, -6), mtimeMs: st.mtimeMs, size: st.size })
+        } catch {
+          // vanished
+        }
       }
     }
   }
@@ -197,7 +200,8 @@ export async function listProjectSessions(
       lastActivity: f.mtimeMs,
       cwd: s.cwd,
       ...(worktreeRel ? { worktreeRel } : {}),
-      ...(s.model ? { model: s.model } : {})
+      ...(s.model ? { model: s.model } : {}),
+      ...(accountOfPath(f.path) === 2 ? { account: 2 as const } : {})
     })
   }
   return out

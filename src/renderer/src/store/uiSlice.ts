@@ -8,7 +8,7 @@ export type ProjectModalState =
   | { mode: 'edit'; projectKey: string }
   | { mode: 'promote'; projectKey: string; suggestedName: string }
 
-export type PopoverKind = 'model' | 'effort' | 'base' | 'mode'
+export type PopoverKind = 'model' | 'effort' | 'base' | 'mode' | 'account'
 export type DrawerTab = 'shell' | 'tui'
 
 export interface UiSlice {

@@ -14,6 +14,7 @@ import type {
   PtySpawnInput,
   SyncConfigureInput
 } from '../shared/types'
+import { listAccounts } from './accounts'
 import { describe, pick, saveImage } from './chat/attachments'
 import { chatService } from './chat/service'
 import { gitInfo, listBranches } from './git/git'
@@ -208,6 +209,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     chatService.listCommands(chatId)
   )
   ipcMain.handle(IPC_CHANNELS.rate.get, () => chatService.getRateLimits())
+  ipcMain.handle(IPC_CHANNELS.accounts.list, () => listAccounts())
   ipcMain.handle(IPC_CHANNELS.chat.close, (_event, chatId: string) => chatService.close(chatId))
   ipcMain.handle(IPC_CHANNELS.chat.history, (_event, chatId: string) => chatService.history(chatId))
   ipcMain.handle(IPC_CHANNELS.chat.setActive, (_event, projectKey: string, tab: string) =>

@@ -3,6 +3,7 @@ import { suggestBranchName } from '../../../shared/chat'
 import { statusTone } from '../../../shared/types'
 import { withoutKey } from '../lib/objects'
 import type {
+  AccountInfo,
   ChatAttachment,
   ChatCreateInput,
   ChatItem,
@@ -49,8 +50,10 @@ export interface ChatsSlice {
   toggleDefaults: Record<string, ChatToggles>
   tuiPtyByChat: Record<string, string>
   rateLimits: RateLimits | null
+  accounts: AccountInfo[]
   slashCommands: Record<string, SlashCommandInfo[]>
   setRateLimits: (limits: RateLimits | null) => void
+  setAccounts: (accounts: AccountInfo[]) => void
   loadSlashCommands: (chatId: string) => Promise<void>
   clearChat: (chatId: string) => void
   setChats: (chats: ChatMeta[]) => void
@@ -123,8 +126,10 @@ export const createChatsSlice: StateCreator<StoreState, [], [], ChatsSlice> = (s
     toggleDefaults: loadToggleDefaults(),
     tuiPtyByChat: {},
     rateLimits: null,
+    accounts: [],
     slashCommands: {},
     setRateLimits: (rateLimits) => set({ rateLimits }),
+    setAccounts: (accounts) => set({ accounts }),
     loadSlashCommands: async (chatId) => {
       if (get().slashCommands[chatId] || loadingCommands.has(chatId)) return
       loadingCommands.add(chatId)
@@ -243,6 +248,8 @@ export const createChatsSlice: StateCreator<StoreState, [], [], ChatsSlice> = (s
       if (!chat) return
       set((state) => ({
         chats: state.chats.map((c) => (c.chatId === chatId ? { ...c, ...patch } : c)),
+        // Each account has its own skills, so its `/` suggestions must load again.
+        ...(patch.account !== undefined ? { slashCommands: withoutKey(state.slashCommands, chatId) } : {}),
         ...(patch.toggles
           ? { toggleDefaults: { ...state.toggleDefaults, [chat.projectKey]: patch.toggles } }
           : {})

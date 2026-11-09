@@ -30,6 +30,10 @@ export function useIpcBootstrap(): void {
       .get()
       .then((limits) => useStore.getState().setRateLimits(limits))
       .catch((error) => console.error(error))
+    api.accounts
+      .list()
+      .then((accounts) => useStore.getState().setAccounts(accounts))
+      .catch((error) => console.error(error))
 
     let chatsPushed = false
     api.chat

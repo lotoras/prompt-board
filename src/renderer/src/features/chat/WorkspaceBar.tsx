@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
-import { ChevronDown, FolderGit2, GitBranch, GitBranchPlus, Terminal } from 'lucide-react'
+import { ChevronDown, FolderGit2, GitBranch, GitBranchPlus, Terminal, UserRound } from 'lucide-react'
 import { worktreeSlug } from '../../../../shared/chat'
-import type { ChatMeta } from '../../../../shared/types'
+import { CLAUDE_ACCOUNTS, type ChatMeta } from '../../../../shared/types'
 import { api } from '../../lib/api'
 import { EMPTY_DRAFT, effectiveBranchName } from '../../store/chatsSlice'
 import { useStore } from '../../store'
-import { BasePopover } from './popovers/pickers'
+import { AccountPopover, BasePopover } from './popovers/pickers'
 
 function TerminalButton(): React.JSX.Element {
   const toggleDrawer = useStore((s) => s.toggleDrawer)
@@ -31,8 +31,11 @@ export function WorkspaceBar({ chat }: { chat: ChatMeta }): React.JSX.Element {
   const popover = useStore((s) => s.popover)
   const setPopover = useStore((s) => s.setPopover)
   const setWorkspace = useStore((s) => s.setWorkspace)
+  const updateChat = useStore((s) => s.updateChat)
+  const accounts = useStore((s) => s.accounts)
   const [branches, setBranches] = useState<string[]>([])
   const [baseEl, setBaseEl] = useState<HTMLButtonElement | null>(null)
+  const [accountEl, setAccountEl] = useState<HTMLButtonElement | null>(null)
 
   useEffect(() => {
     if (chat.started) return
@@ -50,6 +53,12 @@ export function WorkspaceBar({ chat }: { chat: ChatMeta }): React.JSX.Element {
   if (chat.started) {
     return (
       <div className="wsbar">
+        {chat.account === 2 && (
+          <span className="ws-live">
+            <UserRound className="i sm" strokeWidth={1.8} />
+            <span>Claude 2</span>
+          </span>
+        )}
         {chat.branch && (
           <span className="ws-live">
             <GitBranch className="i sm" strokeWidth={1.8} />
@@ -81,6 +90,8 @@ export function WorkspaceBar({ chat }: { chat: ChatMeta }): React.JSX.Element {
       ? `a detached copy of ${base}`
       : base
 
+  const note = `Runs in ${where} on ${onBranch}`
+
   const toggleWorktree = (): void => {
     const next = !ws.newWorktree
     setWorkspace(chatId, {
@@ -93,8 +104,22 @@ export function WorkspaceBar({ chat }: { chat: ChatMeta }): React.JSX.Element {
     setWorkspace(chatId, { newBranch: !ws.newBranch, branchTouched: true })
   }
 
+  const accountLabel = CLAUDE_ACCOUNTS.find((a) => a.id === chat.account)?.label ?? 'Claude 1'
+
   return (
     <div className="wsbar">
+      <button
+        ref={setAccountEl}
+        type="button"
+        className="ws-pick"
+        aria-label={`Claude account: ${accountLabel}`}
+        title="Claude account for this chat"
+        onClick={() => setPopover(popover === 'account' ? null : 'account')}
+      >
+        <UserRound className="i sm" strokeWidth={1.8} />
+        <span>{accountLabel}</span>
+        <ChevronDown className="i sm" strokeWidth={1.8} />
+      </button>
       <button
         ref={setBaseEl}
         type="button"
@@ -138,8 +163,20 @@ export function WorkspaceBar({ chat }: { chat: ChatMeta }): React.JSX.Element {
           onChange={(e) => setWorkspace(chatId, { branchName: e.target.value, nameTouched: true })}
         />
       )}
-      <span className="ws-note">{`Runs in ${where} on ${onBranch}`}</span>
+      <span className="ws-note" title={note}>{note}</span>
       <TerminalButton />
+      {popover === 'account' && (
+        <AccountPopover
+          anchor={accountEl}
+          accounts={accounts}
+          current={chat.account}
+          onClose={() => setPopover(null)}
+          onPick={(account) => {
+            updateChat(chatId, { account })
+            setPopover(null)
+          }}
+        />
+      )}
       {popover === 'base' && (
         <BasePopover
           anchor={baseEl}
