@@ -1,12 +1,13 @@
 import type { BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from '../../shared/types'
-import type { PtySessionEvent, SessionInfo, SessionsSnapshot } from '../../shared/types'
+import type { ClaudeAccountId, PtySessionEvent, SessionInfo, SessionsSnapshot } from '../../shared/types'
 import { restoreLog } from '../lib/restoreLog'
 
 interface PendingSpawn {
   projectKey: string
   spawnedAt: number
   expectedSessionId?: string
+  account: ClaudeAccountId
 }
 
 // Allow a small negative tolerance for clock skew between the pty spawn
@@ -31,9 +32,10 @@ export function registerPendingSpawn(
   ptyId: string,
   projectKey: string,
   spawnedAt: number,
-  expectedSessionId?: string
+  expectedSessionId?: string,
+  account: ClaudeAccountId = 1
 ): void {
-  pendingSpawns.set(ptyId, { projectKey, spawnedAt, expectedSessionId })
+  pendingSpawns.set(ptyId, { projectKey, spawnedAt, expectedSessionId, account })
 }
 
 export function clearPendingSpawn(ptyId: string): void {
@@ -108,6 +110,7 @@ export function reconcilePendingSpawns(
     const candidates = project.sessions
       .filter(
         (s) =>
+          (s.account ?? 1) === pending.account &&
           s.startedAt >= pending.spawnedAt - START_TOLERANCE_MS &&
           !claimedSessionIds.has(s.sessionId)
       )
@@ -123,7 +126,7 @@ export function reconcilePendingSpawns(
       const elapsed = Date.now() - pending.spawnedAt
       if (elapsed < RESUME_GRACE_MS) {
         const soleOtherPending = ![...pendingSpawns].some(
-          ([id, p]) => id !== ptyId && p.projectKey === pending.projectKey
+          ([id, p]) => id !== ptyId && p.projectKey === pending.projectKey && p.account === pending.account
         )
         const only = candidates.length === 1 ? candidates[0] : undefined
         const earlyOk =

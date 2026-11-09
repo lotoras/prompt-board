@@ -4,6 +4,7 @@ import type { IPty } from 'node-pty'
 import { pathKey } from '../../shared/pathKey'
 import { IPC_CHANNELS } from '../../shared/types'
 import type { PtySpawnInput, PtySpawnResult } from '../../shared/types'
+import { accountLauncher } from '../accounts'
 import { assertProjectDirectory, listProjects } from '../projects/store'
 import {
   clearPendingSpawn,
@@ -57,14 +58,14 @@ const CODEX_FALLBACK_MARKER = 'prompt-board: Claude failed to start'
  * starts Codex seeded with the failure so it can be fixed in this terminal.
  * Single-quoted PowerShell only — no `"` (node-pty quotes the argv).
  */
-function freshCommand(notice: string): string {
+function freshCommand(notice: string, launcher: string): string {
   return (
-    `${notice}$t=Get-Date; clauded; $ok=$?; $code=$LASTEXITCODE; ` +
+    `${notice}$t=Get-Date; ${launcher}; $ok=$?; $code=$LASTEXITCODE; ` +
     `if (-not $ok -and ((Get-Date)-$t).TotalSeconds -lt ${CODEX_FALLBACK_WINDOW_S}) { ` +
     `if ($code -eq $null) { $code='command not found' } else { $code='exit ' + $code }; ` +
     `Write-Host ('${CODEX_FALLBACK_MARKER} (' + $code + ') - starting Codex') -ForegroundColor Yellow; ` +
-    `codex ('clauded (the Claude Code launcher) failed to start in this folder (' + $code + '). ` +
-    `Find out why, for example with where.exe clauded and clauded --version, then fix it so clauded starts.') }`
+    `codex ('${launcher} (the Claude Code launcher) failed to start in this folder (' + $code + '). ` +
+    `Find out why, for example with where.exe ${launcher} and ${launcher} --version, then fix it so ${launcher} starts.') }`
   )
 }
 
@@ -122,14 +123,20 @@ export async function spawnPty(
       : undefined
   const downgraded = !shellMode && Boolean(input.resumeSessionId) && !resumeSessionId
   const notice = downgraded || input.freshFallback ? NOTICE : ''
-  const command = resumeSessionId ? `clauded --resume ${resumeSessionId}` : freshCommand(notice)
+  const account = input.account ?? 1
+  const launcher = accountLauncher(account)
+  const command = resumeSessionId
+    ? `${launcher} --resume ${resumeSessionId}`
+    : freshCommand(notice, launcher)
+  const env = { ...process.env, CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1' } as Record<string, string>
+  if (account === 1) delete env.CLAUDE_CONFIG_DIR
   const args = shellMode ? ['-NoLogo'] : ['-NoLogo', '-NoProfile', '-Command', command]
   const ptyProcess = pty.spawn('powershell.exe', args, {
     cwd,
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
     useConpty: true,
-    env: { ...process.env, CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1' } as Record<string, string>
+    env
   })
 
   sessions.set(ptyId, { pty: ptyProcess, projectKey: input.projectKey })
@@ -140,12 +147,13 @@ export async function spawnPty(
     if (resumeSessionId) {
       preclaimSession(resumeSessionId)
     }
-    registerPendingSpawn(ptyId, input.projectKey, spawnedAt, resumeSessionId)
+    registerPendingSpawn(ptyId, input.projectKey, spawnedAt, resumeSessionId, account)
   }
   restoreLog('spawn', {
     ptyId,
     pid: ptyProcess.pid,
     projectKey: input.projectKey,
+    account,
     requestedResume: input.resumeSessionId,
     resumed: Boolean(resumeSessionId),
     downgraded,

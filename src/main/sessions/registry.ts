@@ -1,11 +1,12 @@
 import { promises as fs } from 'fs'
-import os from 'os'
 import { join } from 'path'
-import type { SessionInfo, SessionStatus } from '../../shared/types'
+import { CLAUDE_ACCOUNTS } from '../../shared/types'
+import type { ClaudeAccountId, SessionInfo, SessionStatus } from '../../shared/types'
+import { accountConfigDir } from '../accounts'
 import { readJsonFile } from '../lib/atomicWrite'
 
-export function sessionsDir(): string {
-  return join(os.homedir(), '.claude', 'sessions')
+export function sessionsDir(account: ClaudeAccountId = 1): string {
+  return join(accountConfigDir(account), 'sessions')
 }
 
 const VALID_STATUSES: SessionStatus[] = ['busy', 'idle', 'waiting']
@@ -52,27 +53,29 @@ let lastGood = new Map<string, SessionInfo>()
  * that have never parsed are skipped rather than throwing.
  */
 export async function readRegistry(): Promise<SessionInfo[]> {
-  const dir = sessionsDir()
-  let entries: string[]
-  try {
-    entries = await fs.readdir(dir)
-  } catch {
-    return []
-  }
-
-  const jsonFiles = entries.filter((name) => name.endsWith('.json'))
   const next = new Map<string, SessionInfo>()
 
-  for (const name of jsonFiles) {
-    const path = join(dir, name)
-    let parsed: SessionInfo | null = null
+  for (const { id: account } of CLAUDE_ACCOUNTS) {
+    const dir = sessionsDir(account)
+    let entries: string[]
     try {
-      parsed = parseRegistryFile(await readJsonFile<unknown>(path, null))
+      entries = await fs.readdir(dir)
     } catch {
-      // partial/unreadable file: fall back to last-good
+      continue
     }
-    const info = parsed ?? lastGood.get(path)
-    if (info) next.set(path, info)
+
+    for (const name of entries.filter((n) => n.endsWith('.json'))) {
+      const path = join(dir, name)
+      let parsed: SessionInfo | null = null
+      try {
+        parsed = parseRegistryFile(await readJsonFile<unknown>(path, null))
+      } catch {
+        // partial/unreadable file: fall back to last-good
+      }
+      if (parsed) parsed.account = account
+      const info = parsed ?? lastGood.get(path)
+      if (info) next.set(path, info)
+    }
   }
 
   lastGood = next

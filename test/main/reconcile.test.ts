@@ -190,6 +190,51 @@ describe('pty/reconcile', () => {
     })
   })
 
+  describe('account scoping', () => {
+    it('binds each pending spawn to the session of its own account (same project, same spawnedAt)', async () => {
+      const { registerPendingSpawn, reconcilePendingSpawns } = await loadReconcile()
+      const spawnedAt = Date.now() - 20000
+      const sA = makeSession({ pid: 1, sessionId: 'sA', startedAt: spawnedAt + 100, account: 1 })
+      const sB = makeSession({ pid: 2, sessionId: 'sB', startedAt: spawnedAt + 200, account: 2 })
+      registerPendingSpawn('ptyB', 'proj-1', spawnedAt, undefined, 2)
+      registerPendingSpawn('ptyA', 'proj-1', spawnedAt, undefined, 1)
+
+      const send = vi.fn()
+      const win = { isDestroyed: () => false, webContents: { send } }
+      reconcilePendingSpawns(makeSnapshot([sA, sB]), () => win as never)
+
+      expect(send).toHaveBeenCalledTimes(2)
+      expect(send).toHaveBeenCalledWith(expect.any(String), { ptyId: 'ptyA', sessionId: 'sA' })
+      expect(send).toHaveBeenCalledWith(expect.any(String), { ptyId: 'ptyB', sessionId: 'sB' })
+    })
+
+    it('a session without an account field matches a pending spawn registered without account', async () => {
+      const { registerPendingSpawn, reconcilePendingSpawns } = await loadReconcile()
+      const spawnedAt = Date.now() - 20000
+      const legacy = makeSession({ sessionId: 'legacy-1', startedAt: spawnedAt + 100 })
+      registerPendingSpawn('pty-legacy', 'proj-1', spawnedAt)
+
+      const send = vi.fn()
+      const win = { isDestroyed: () => false, webContents: { send } }
+      reconcilePendingSpawns(makeSnapshot([legacy]), () => win as never)
+
+      expect(send).toHaveBeenCalledWith(expect.any(String), { ptyId: 'pty-legacy', sessionId: 'legacy-1' })
+    })
+
+    it('an account-2 pending spawn never claims an account-1 session', async () => {
+      const { registerPendingSpawn, reconcilePendingSpawns } = await loadReconcile()
+      const spawnedAt = Date.now() - 20000
+      const s1 = makeSession({ sessionId: 'acc1-only', startedAt: spawnedAt + 100, account: 1 })
+      registerPendingSpawn('pty-acc2', 'proj-1', spawnedAt, undefined, 2)
+
+      const send = vi.fn()
+      const win = { isDestroyed: () => false, webContents: { send } }
+      reconcilePendingSpawns(makeSnapshot([s1]), () => win as never)
+
+      expect(send).not.toHaveBeenCalled()
+    })
+  })
+
   describe('regression guards', () => {
     it('links immediately when the expected session is already live (no early-claim gating)', async () => {
       const { registerPendingSpawn, reconcilePendingSpawns } = await loadReconcile()
