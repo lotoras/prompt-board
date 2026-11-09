@@ -1,4 +1,4 @@
-import { EFFORT_LEVELS, contextTokens, parseDirectives } from '../../shared/chat'
+import { EFFORT_LEVELS, SYNTHETIC_MODEL, contextTokens, parseDirectives } from '../../shared/chat'
 import type { ChatItem, EffortLevel } from '../../shared/types'
 import { diffForWrite, diffFromPatch, diffFromStrings, type PatchHunk } from './diff'
 
@@ -19,6 +19,8 @@ export interface TranscriptRecord {
   parentUuid?: string | null
   isSidechain?: boolean
   isMeta?: boolean
+  isCompactSummary?: boolean
+  isVisibleInTranscriptOnly?: boolean
   message?: { id?: string; role?: string; model?: string; content?: unknown; usage?: unknown }
   toolUseResult?: unknown
   aiTitle?: string
@@ -27,6 +29,12 @@ export interface TranscriptRecord {
   cwd?: string
   durationMs?: number
   timestamp?: string
+  /** Text of a system record. */
+  content?: unknown
+  level?: string
+  status?: string
+  summary?: string
+  attachment?: { type?: string; prompt?: unknown; [key: string]: unknown }
 }
 
 export interface ParserState {
@@ -43,6 +51,10 @@ const SUMMARY_MAX = 100
 const IGNORED_USER_PREFIXES = ['<local-command-caveat>', '<local-command-stdout>', '<system-reminder>']
 /** Claude Code records a stopped turn as a plain user line; it is not something the user typed. */
 const INTERRUPT_MARKER = /^\[Request interrupted by user/
+
+const LOCAL_OUTPUT = /^<local-command-(stdout|stderr)>([\s\S]*?)<\/local-command-\1>$/
+const ANSI_CODES = new RegExp(String.fromCharCode(27) + '\\[[0-9;?]*[ -/]*[@-~]', 'g')
+const NO_RESPONSE = 'No response requested.'
 
 function plainUserText(content: unknown): string {
   if (typeof content === 'string') return content.trim()
@@ -168,6 +180,25 @@ function userItem(
   }
 }
 
+/** Output of a local slash command, or undefined when `text` is something else. */
+function localOutput(text: string): string | undefined {
+  const match = LOCAL_OUTPUT.exec(text.trim())
+  return match ? match[2].replace(ANSI_CODES, '').trim() : undefined
+}
+
+function tagText(text: string, tag: string): string | undefined {
+  return new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text)?.[1].trim()
+}
+
+function taskNote(id: string, summary: string | undefined, status: string | undefined): ChatItem {
+  return {
+    kind: 'system',
+    id,
+    tone: status === 'failed' ? 'error' : 'info',
+    text: summary || 'A background task finished'
+  }
+}
+
 function put(state: ParserState, item: ChatItem, out: Map<string, ChatItem>): void {
   if (!state.items.has(item.id)) state.fresh.push(item.id)
   state.items.set(item.id, item)
@@ -217,11 +248,34 @@ function applyToolResult(
   }
 }
 
+/** Same id as the live view, so a command's output looks the same before and after a reload. */
+function putLocalOutput(
+  state: ParserState,
+  record: TranscriptRecord,
+  output: string,
+  out: Map<string, ChatItem>
+): void {
+  // "Compacted" only repeats the compaction note.
+  if (!output || output === 'Compacted') return
+  put(state, { kind: 'assistant', id: `${record.uuid ?? `rec-${++state.seq}`}:0`, markdown: output }, out)
+}
+
 function applyUser(state: ParserState, record: TranscriptRecord, out: Map<string, ChatItem>): void {
-  if (record.isMeta) return
+  if (record.isMeta || record.isCompactSummary || record.isVisibleInTranscriptOnly) return
   const content = record.message?.content
-  if (INTERRUPT_MARKER.test(plainUserText(content))) {
+  const plain = plainUserText(content)
+  if (INTERRUPT_MARKER.test(plain)) {
     put(state, { kind: 'system', id: record.uuid ?? `rec-${++state.seq}`, tone: 'info', text: 'Stopped' }, out)
+    return
+  }
+  const output = localOutput(plain)
+  if (output !== undefined) {
+    putLocalOutput(state, record, output, out)
+    return
+  }
+  if (plain.startsWith('<task-notification>')) {
+    const id = record.uuid ?? `rec-${++state.seq}`
+    put(state, taskNote(id, tagText(plain, 'summary'), tagText(plain, 'status')), out)
     return
   }
   if (typeof content === 'string') {
@@ -235,7 +289,7 @@ function applyUser(state: ParserState, record: TranscriptRecord, out: Map<string
           kind: 'command',
           id: record.uuid ?? `rec-${++state.seq}`,
           name: name[1].trim(),
-          args: (args?.[1] ?? '').trim()
+          args: parseDirectives((args?.[1] ?? '').trim()).text.trim()
         },
         out
       )
@@ -324,7 +378,8 @@ function applyAssistant(
 ): void {
   const message = record.message
   const sidechain = record.isSidechain === true
-  if (isObj(message?.usage)) {
+  const synthetic = message?.model === SYNTHETIC_MODEL
+  if (isObj(message?.usage) && !synthetic) {
     const u = message.usage
     for (const k of [
       'input_tokens',
@@ -336,7 +391,7 @@ function applyAssistant(
     }
     if (!sidechain) state.meta.contextTokens = contextTokens(u)
   }
-  if (!sidechain) {
+  if (!sidechain && !synthetic) {
     if (typeof message?.model === 'string') state.meta.model = message.model
     if (record.effort && (EFFORT_LEVELS as string[]).includes(record.effort)) {
       state.meta.effort = record.effort as EffortLevel
@@ -359,7 +414,7 @@ function applyAssistant(
       return
     }
     if (raw.type === 'text') {
-      if (typeof raw.text === 'string' && raw.text) {
+      if (typeof raw.text === 'string' && raw.text && !(synthetic && raw.text === NO_RESPONSE)) {
         put(state, { kind: 'assistant', id: `${uuid}:${i}`, markdown: raw.text }, out)
       }
     } else if (raw.type === 'thinking') {
@@ -428,6 +483,37 @@ export function dropItemsFrom(state: ParserState, itemId: string): void {
   if (cut >= 0) state.chain.splice(cut)
 }
 
+function applySystem(state: ParserState, record: TranscriptRecord, out: Map<string, ChatItem>): void {
+  const id = record.uuid ?? `rec-${++state.seq}`
+  const content = typeof record.content === 'string' ? record.content : ''
+  switch (record.subtype) {
+    case 'turn_duration':
+      put(state, { kind: 'turn-end', id, durationMs: record.durationMs ?? 0 }, out)
+      return
+    case 'compact_boundary':
+      put(state, { kind: 'system', id, text: 'Context compacted' }, out)
+      return
+    case 'local_command': {
+      const output = localOutput(content)
+      if (output !== undefined) putLocalOutput(state, { ...record, uuid: id }, output, out)
+      return
+    }
+    case 'informational':
+      // Level info is for the terminal's transcript mode only.
+      if (content && record.level !== 'info') put(state, { kind: 'system', id, tone: 'info', text: content }, out)
+      return
+    case 'task_notification':
+      put(state, taskNote(id, record.summary, record.status), out)
+      return
+    case 'model_refusal_fallback':
+      if (content) put(state, { kind: 'system', id, tone: 'info', text: content }, out)
+      return
+    case 'model_refusal_no_fallback':
+      if (content) put(state, { kind: 'system', id, tone: 'error', text: content }, out)
+      return
+  }
+}
+
 export function applyRecord(state: ParserState, record: TranscriptRecord): ChatItem[] {
   const out = new Map<string, ChatItem>()
   truncateBranch(state, record)
@@ -441,14 +527,14 @@ export function applyRecord(state: ParserState, record: TranscriptRecord): ChatI
   } else if (record.type === 'assistant') {
     applyAssistant(state, record, out)
   } else if (record.type === 'system') {
-    const id = record.uuid ?? `rec-${++state.seq}`
-    if (record.subtype === 'turn_duration') {
-      put(state, { kind: 'turn-end', id, durationMs: record.durationMs ?? 0 }, out)
-    } else if (record.subtype === 'compact_boundary') {
-      put(state, { kind: 'system', id, text: 'Context compacted' }, out)
+    applySystem(state, record, out)
+  } else if (record.type === 'attachment') {
+    // A prompt sent while Claude was working is saved only as this attachment.
+    if (record.attachment?.type === 'queued_command' && record.isSidechain !== true) {
+      applyUser(state, { ...record, message: { content: record.attachment.prompt } }, out)
     }
   }
-  if (record.uuid && record.isSidechain !== true && ['user', 'assistant', 'system'].includes(record.type)) {
+  if (record.uuid && record.isSidechain !== true && ['user', 'assistant', 'system', 'attachment'].includes(record.type)) {
     state.chain.push({ uuid: record.uuid, created: state.fresh })
   }
   return [...out.values()]

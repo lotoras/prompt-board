@@ -136,6 +136,7 @@ describe('chat/runner modes, permissions, rewind, probes', () => {
   let emitStatus: ReturnType<typeof vi.fn>
   let emitMeta: ReturnType<typeof vi.fn>
   let onRateLimit: ReturnType<typeof vi.fn>
+  let onConversationCleared: ReturnType<typeof vi.fn>
   let runner: ChatRunner
   let savedKey: string | undefined
 
@@ -151,6 +152,7 @@ describe('chat/runner modes, permissions, rewind, probes', () => {
     emitStatus = vi.fn()
     emitMeta = vi.fn()
     onRateLimit = vi.fn()
+    onConversationCleared = vi.fn()
     const deps = {
       loadSdk: vi.fn(async () => ({
         query: (params: QueryParams) => {
@@ -172,7 +174,8 @@ describe('chat/runner modes, permissions, rewind, probes', () => {
       emitItems,
       emitStatus,
       emitMeta,
-      onRateLimit
+      onRateLimit,
+      onConversationCleared
     }
     runner = createChatRunner(deps as unknown as RunnerDeps)
   })
@@ -619,6 +622,113 @@ describe('chat/runner modes, permissions, rewind, probes', () => {
     it('probeCommands is [] when the probe fails', async () => {
       hooks.commandsError = new Error('nope')
       expect(await runner.probeCommands('C:\\work\\p1')).toEqual([])
+    })
+  })
+  // -------------------------------------------------------------------------
+  describe('events shown while the chat is open', () => {
+    const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
+    const NOTE = 'Compacting context…'
+
+    function removed(): string[] {
+      return (emitItems.mock.calls as [ChatItemsEvent][]).flatMap(([e]) => e.remove ?? [])
+    }
+
+    function noteId(text: string): string {
+      const item = upserts().find((i) => i.kind === 'system' && i.text === text)
+      if (!item) throw new Error('no note: ' + text)
+      return item.id
+    }
+
+    it('shows the compaction note', async () => {
+      const q = await openChat()
+      q.emit({ type: 'system', subtype: 'compact_boundary', uuid: 'b1', session_id: 's' })
+      await flush()
+      expect(upserts()).toContainEqual({ kind: 'system', id: 'b1', text: 'Context compacted' })
+    })
+
+    it('shows progress while compacting and removes it at the end', async () => {
+      const q = await openChat()
+      q.emit({ type: 'system', subtype: 'status', status: 'compacting', uuid: 'x', session_id: 's' })
+      await flush()
+      const id = noteId(NOTE)
+      expect(removed()).not.toContain(id)
+      q.emit({ type: 'system', subtype: 'status', status: null, compact_result: 'success', uuid: 'y', session_id: 's' })
+      await flush()
+      expect(removed()).toContain(id)
+    })
+
+    it('keeps the progress note during a requesting status', async () => {
+      const q = await openChat()
+      q.emit({ type: 'system', subtype: 'status', status: 'compacting', uuid: 'x', session_id: 's' })
+      await flush()
+      const id = noteId(NOTE)
+      q.emit({ type: 'system', subtype: 'status', status: 'requesting', uuid: 'y', session_id: 's' })
+      await flush()
+      expect(removed()).not.toContain(id)
+    })
+
+    it('shows an error when compacting fails', async () => {
+      const q = await openChat()
+      q.emit({ type: 'system', subtype: 'status', status: 'compacting', uuid: 'x', session_id: 's' })
+      q.emit({
+        type: 'system',
+        subtype: 'status',
+        status: null,
+        compact_result: 'failed',
+        compact_error: 'too small',
+        uuid: 'y',
+        session_id: 's'
+      })
+      await flush()
+      expect(upserts()).toContainEqual(
+        expect.objectContaining({ kind: 'system', tone: 'error', text: 'Compacting failed: too small' })
+      )
+    })
+
+    it('shows a retry note until the next message arrives', async () => {
+      const q = await openChat()
+      q.emit({ type: 'system', subtype: 'api_retry', attempt: 2, max_retries: 10, retry_delay_ms: 1000, uuid: 'x', session_id: 's' })
+      await flush()
+      const id = noteId('API error. Retrying (attempt 2 of 10)')
+      q.emit({ type: 'stream_event', event: { type: 'message_start' }, parent_tool_use_id: null })
+      await flush()
+      expect(removed()).toContain(id)
+    })
+
+    it('shows task notifications, notices and refusals', async () => {
+      const q = await openChat()
+      q.emit({ type: 'system', subtype: 'task_notification', status: 'completed', summary: 'Task done', output_file: 'C:\\t\\a.output', uuid: 't1', session_id: 's' })
+      q.emit({ type: 'system', subtype: 'informational', level: 'warning', content: 'Careful', uuid: 'i1', session_id: 's' })
+      q.emit({ type: 'system', subtype: 'model_refusal_fallback', content: 'Retried on Sonnet', uuid: 'm1', session_id: 's' })
+      await flush()
+      expect(upserts()).toEqual(
+        expect.arrayContaining([
+          { kind: 'system', id: 't1', tone: 'info', text: 'Task done' },
+          { kind: 'system', id: 'i1', tone: 'info', text: 'Careful' },
+          { kind: 'system', id: 'm1', tone: 'info', text: 'Retried on Sonnet' }
+        ])
+      )
+    })
+
+    it('hides the task event of a foreground command', async () => {
+      const q = await openChat()
+      q.emit({ type: 'system', subtype: 'task_notification', status: 'completed', summary: 'Ping', output_file: '', uuid: 't1', session_id: 's' })
+      await flush()
+      expect(upserts().some((i) => i.kind === 'system' && i.text === 'Ping')).toBe(false)
+    })
+
+    it('tells the service when /clear resets the conversation', async () => {
+      const q = await openChat()
+      q.emit({ type: 'conversation_reset', trigger: 'clear', new_conversation_id: 'n', uuid: 'r', session_id: 's' })
+      await flush()
+      expect(onConversationCleared).toHaveBeenCalledWith('chat1')
+    })
+
+    it('ignores a reset that is not from /clear', async () => {
+      const q = await openChat()
+      q.emit({ type: 'conversation_reset', trigger: 'plan_mode_exit', new_conversation_id: 'n', uuid: 'r', session_id: 's' })
+      await flush()
+      expect(onConversationCleared).not.toHaveBeenCalled()
     })
   })
 })

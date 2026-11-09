@@ -21,6 +21,15 @@ import { applyRecord, chainTip, toolSummary, type ParserState } from './transcri
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SdkMessage = any
 
+/** SDK system events the transcript parser turns into chat items. */
+const PARSED_SYSTEM_EVENTS = new Set([
+  'compact_boundary',
+  'informational',
+  'task_notification',
+  'model_refusal_fallback',
+  'model_refusal_no_fallback'
+])
+
 export interface SdkQuery extends AsyncIterable<SdkMessage> {
   interrupt(): Promise<void>
   setModel(m?: string): Promise<void>
@@ -47,6 +56,8 @@ export interface RunnerDeps {
   emitStatus(chatId: string, status: SessionStatus, waitingFor?: string): void
   emitMeta(chatId: string, patch: Partial<ChatMeta>): void
   onRateLimit?(info: unknown, account: ClaudeAccountId): void
+  /** `/clear` ended the conversation; the CLI continues under a new session id. */
+  onConversationCleared?(chatId: string): void
   idleCloseMs?: number
 }
 
@@ -97,6 +108,8 @@ interface Slot {
   pending: Map<string, Pending>
   liveText: string
   liveActive: boolean
+  /** A progress note (compacting, API retry) is on screen. */
+  noteActive: boolean
   idleTimer: ReturnType<typeof setTimeout> | null
   closed: boolean
   cwd: string
@@ -217,11 +230,46 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
     return 'live:' + chatId
   }
 
+  function noteId(chatId: string): string {
+    return 'note:' + chatId
+  }
+
+  function showNote(slot: Slot, text: string): void {
+    slot.noteActive = true
+    emit(slot.chatId, [{ kind: 'system', id: noteId(slot.chatId), tone: 'info', text }])
+  }
+
+  function clearNote(slot: Slot): string[] {
+    if (!slot.noteActive) return []
+    slot.noteActive = false
+    return [noteId(slot.chatId)]
+  }
+
   function clearLive(slot: Slot): string[] {
-    if (!slot.liveActive) return []
+    const remove = clearNote(slot)
+    if (!slot.liveActive) return remove
     slot.liveActive = false
     slot.liveText = ''
-    return [liveId(slot.chatId)]
+    remove.push(liveId(slot.chatId))
+    return remove
+  }
+
+  function handleStatus(slot: Slot, msg: SdkMessage): void {
+    if (msg.status === 'compacting') {
+      showNote(slot, 'Compacting context…')
+      return
+    }
+    if (msg.status !== null) return
+    const upsert: ChatItem[] = []
+    if (msg.compact_result === 'failed') {
+      upsert.push({
+        kind: 'system',
+        id: `err-${randomUUID()}`,
+        tone: 'error',
+        text: msg.compact_error ? `Compacting failed: ${msg.compact_error}` : 'Compacting failed'
+      })
+    }
+    emit(slot.chatId, upsert, clearNote(slot))
   }
 
   async function handleResult(slot: Slot, msg: SdkMessage): Promise<void> {
@@ -319,8 +367,26 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
             deps.emitMeta(chatId, { permissionMode: slot.mode })
           }
         }
+        if (msg.subtype === 'status') {
+          handleStatus(slot, msg)
+        } else if (msg.subtype === 'api_retry') {
+          showNote(slot, `API error. Retrying (attempt ${msg.attempt} of ${msg.max_retries})`)
+        } else if (
+          PARSED_SYSTEM_EVENTS.has(msg.subtype) &&
+          // A foreground command also ends with this event, but only background work has an output file.
+          (msg.subtype !== 'task_notification' || msg.output_file)
+        ) {
+          const { subtype, uuid, content, level, status, summary } = msg
+          emit(
+            chatId,
+            applyRecord(deps.parserFor(chatId), { type: 'system', subtype, uuid, content, level, status, summary })
+          )
+        }
         return
       }
+      case 'conversation_reset':
+        if (msg.trigger === 'clear') deps.onConversationCleared?.(chatId)
+        return
       case 'rate_limit_event':
         deps.onRateLimit?.(msg.rate_limit_info, slot.account)
         return
@@ -464,6 +530,7 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
       pending: new Map(),
       liveText: '',
       liveActive: false,
+      noteActive: false,
       idleTimer: null,
       closed: false,
       cwd: chat.cwd,

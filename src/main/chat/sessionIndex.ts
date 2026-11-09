@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs'
 import { join } from 'path'
-import { parseDirectives } from '../../shared/chat'
+import { SYNTHETIC_MODEL, parseDirectives } from '../../shared/chat'
 import { pathKey } from '../../shared/pathKey'
 import type { PastSession } from '../../shared/types'
 import { accountOfPath } from '../accounts'
@@ -75,7 +75,7 @@ const aiTitleOf = (r: Obj): string | undefined =>
   r.type === 'ai-title' && typeof r.aiTitle === 'string' ? r.aiTitle : undefined
 const modelOf = (r: Obj): string | undefined => {
   const m = (r.message as Obj | undefined)?.model
-  return typeof m === 'string' && m ? m : undefined
+  return typeof m === 'string' && m && m !== SYNTHETIC_MODEL ? m : undefined
 }
 
 export function summarizeTranscript(head: string, tail: string): Summary {

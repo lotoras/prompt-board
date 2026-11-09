@@ -96,6 +96,9 @@ function slug(text: string, max = 40): string {
  * Image attachments are sent as image blocks by main, so they are not listed.
  * With no files and no directives the result is the trimmed text.
  */
+/** `message.model` of records Claude Code writes itself (command output, placeholders). */
+export const SYNTHETIC_MODEL = '<synthetic>'
+
 export function composePrompt(
   text: string,
   toggles: ChatToggles,

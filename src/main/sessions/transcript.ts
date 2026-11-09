@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs'
 import { join } from 'path'
+import { SYNTHETIC_MODEL } from '../../shared/chat'
 import type { ClaudeAccountId } from '../../shared/types'
 import { accountConfigDir } from '../accounts'
 
@@ -61,7 +62,7 @@ function applyLine(state: FileState, line: string): void {
   const message = obj.message
   if (typeof message === 'object' && message !== null) {
     const messageRecord = message as Record<string, unknown>
-    if (typeof messageRecord.model === 'string') {
+    if (typeof messageRecord.model === 'string' && messageRecord.model !== SYNTHETIC_MODEL) {
       state.model = messageRecord.model
     }
     if (messageRecord.usage !== undefined) {

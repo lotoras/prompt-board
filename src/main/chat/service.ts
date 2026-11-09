@@ -450,6 +450,9 @@ export function initChatService(getWindow: () => BrowserWindow | null): void {
     readImage,
     parserFor,
     emitItems: sendItems,
+    onConversationCleared(chatId) {
+      void restart(chatId, 'fresh').catch((err) => console.error('reset after /clear failed', err))
+    },
     onRateLimit(info, account) {
       if (trackerOf(c, account).applyEvent(info)) broadcastRate()
     },
