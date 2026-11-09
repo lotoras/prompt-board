@@ -6,6 +6,7 @@ import os from 'os'
 import { basename, join } from 'path'
 import { pathToFileURL } from 'url'
 import { DEFAULT_PERMISSION_MODE, DEFAULT_TOGGLES } from '../../shared/chat'
+import { pathKey } from '../../shared/pathKey'
 import {
   IPC_CHANNELS,
   type ChatCreateInput,
@@ -52,7 +53,8 @@ import {
   getItems,
   getMeta,
   parseLines,
-  type ParserState
+  type ParserState,
+  type TranscriptMeta
 } from './transcriptParser'
 
 const SDK_MODULE = '@anthropic-ai/claude-agent-sdk'
@@ -206,6 +208,7 @@ function ownMeta(
 
   return {
     ...chat,
+    ...(chat.branch || !parserMeta?.gitBranch ? {} : { branch: parserMeta.gitBranch }),
     title,
     status,
     ...(waitingFor !== undefined ? { waitingFor } : {}),
@@ -523,6 +526,16 @@ async function list(): Promise<{ chats: ChatMeta[]; activeByProject: Record<stri
   return { chats: buildMetas(), activeByProject: { ...c.state.activeByProject } }
 }
 
+/** Last cwd, model, effort and branch recorded in a session's transcript. */
+async function transcriptMetaOf(sessionId: string): Promise<TranscriptMeta | undefined> {
+  const path = await locateTranscript(sessionId)
+  if (!path) return undefined
+  const text = await fs.readFile(path, 'utf8').catch(() => '')
+  const state = createParserState()
+  parseLines(state, text.split(/\r?\n/))
+  return getMeta(state)
+}
+
 async function create(input: ChatCreateInput): Promise<ChatCreateResult> {
   const c = await ready()
   if (input.resumeSessionId) {
@@ -538,13 +551,19 @@ async function create(input: ChatCreateInput): Promise<ChatCreateResult> {
   if (!project?.basePath) throw new Error(`Unknown project: ${input.projectKey}`)
 
   let cwd = project.basePath
+  let resumed: TranscriptMeta | undefined
   if (input.resumeSessionId) {
+    resumed = await transcriptMetaOf(input.resumeSessionId)
     const live = sessionIndex().get(input.resumeSessionId)?.session.cwd
     const linked = (await getBoards()).cards.find(
       (card) => card.link?.sessionId === input.resumeSessionId
     )?.link?.cwd
-    cwd = live ?? linked ?? cwd
+    cwd = live ?? resumed?.cwd ?? linked ?? cwd
   }
+  const worktreeMark = `${input.projectKey}/.claude/worktrees/`
+  const worktreeSlugOfCwd = pathKey(cwd).startsWith(worktreeMark)
+    ? pathKey(cwd).slice(worktreeMark.length).split('/')[0]
+    : undefined
 
   const defaults = await loadClaudeDefaults()
   const now = Date.now()
@@ -554,8 +573,10 @@ async function create(input: ChatCreateInput): Promise<ChatCreateResult> {
     sessionId: input.resumeSessionId ?? randomUUID(),
     title: input.title ?? 'New chat',
     cwd,
-    model: defaults.model,
-    effort: defaults.effort,
+    ...(resumed?.gitBranch ? { branch: resumed.gitBranch } : {}),
+    ...(worktreeSlugOfCwd ? { worktreePath: `.claude/worktrees/${worktreeSlugOfCwd}` } : {}),
+    model: resumed?.model ?? defaults.model,
+    effort: resumed?.effort ?? defaults.effort,
     toggles: DEFAULT_TOGGLES,
     permissionMode: defaults.permissionMode,
     started: Boolean(input.resumeSessionId),
