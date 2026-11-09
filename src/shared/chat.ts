@@ -37,7 +37,7 @@ export const DEFAULT_TOGGLES: ChatToggles = { codex: 'off', ultra: false }
 export const PERMISSION_MODES: { id: PermissionModeId; label: string; description: string }[] = [
   { id: 'default', label: 'Ask', description: 'Asks before edits and commands' },
   { id: 'acceptEdits', label: 'Accept edits', description: 'Edits files freely, asks before commands' },
-  { id: 'plan', label: 'Plan', description: 'Reads and plans only; you approve the plan' },
+  { id: 'plan', label: 'Plan', description: 'Plans first and never asks for access; you approve the plan' },
   { id: 'bypassPermissions', label: 'Full access', description: 'Never asks (like clauded)' }
 ]
 

@@ -9,7 +9,6 @@ export type ProjectModalState =
   | { mode: 'promote'; projectKey: string; suggestedName: string }
 
 export type PopoverKind = 'model' | 'effort' | 'base' | 'mode' | 'account'
-export type DrawerTab = 'shell' | 'tui'
 
 export interface UiSlice {
   view: UiView
@@ -27,9 +26,7 @@ export interface UiSlice {
   sideOpen: boolean
   setSideOpen: (open: boolean) => void
   drawerOpen: boolean
-  drawerTab: DrawerTab
   toggleDrawer: (open?: boolean) => void
-  setDrawerTab: (tab: DrawerTab) => void
   popover: PopoverKind | null
   setPopover: (popover: PopoverKind | null) => void
   /** The last toast stays in state (hidden) so its text does not vanish mid fade-out. */
@@ -104,9 +101,7 @@ export const createUiSlice: StateCreator<StoreState, [], [], UiSlice> = (set, ge
   sideOpen: false,
   setSideOpen: (open) => set({ sideOpen: open }),
   drawerOpen: false,
-  drawerTab: 'shell',
   toggleDrawer: (open) => set({ drawerOpen: open ?? !get().drawerOpen }),
-  setDrawerTab: (tab) => set({ drawerTab: tab }),
   popover: null,
   setPopover: (popover) => set({ popover }),
   toast: null,

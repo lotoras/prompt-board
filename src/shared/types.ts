@@ -310,6 +310,15 @@ export interface ChatMeta {
   cardId?: string
   createdAt: number
   updatedAt: number
+  /** Messages sent while Claude worked that Claude has not received yet. */
+  queued?: QueuedMessage[]
+}
+
+export interface QueuedMessage {
+  /** The uuid of the SDK message. */
+  id: string
+  text: string
+  attachments: { name: string; kind: 'image' | 'file' }[]
 }
 
 /** What `chats.json` stores per own chat (live fields are recomputed). */
@@ -324,6 +333,7 @@ export type PersistedChat = Omit<
   | 'contextWindow'
   | 'totalTokens'
   | 'account'
+  | 'queued'
 > & { account?: ClaudeAccountId }
 
 export interface PersistedChatsState {

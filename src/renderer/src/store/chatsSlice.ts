@@ -71,6 +71,10 @@ export interface ChatsSlice {
   closeChat: (chatId: string) => Promise<void>
   toggleChatAck: (chatId: string) => void
   openInTui: (chatId: string) => Promise<void>
+  /** Ends the terminal; the same conversation continues in the chat. */
+  backToChat: (chatId: string) => Promise<void>
+  /** The terminal process ended (e.g. `/exit`). */
+  dropTuiPty: (ptyId: string) => void
   takeOverChat: (chatId: string) => Promise<void>
   chatsFor: (projectKey: string) => ChatMeta[]
   activeTabFor: (projectKey: string) => string
@@ -135,7 +139,8 @@ export const createChatsSlice: StateCreator<StoreState, [], [], ChatsSlice> = (s
       loadingCommands.add(chatId)
       try {
         const list = await api.chat.listCommands(chatId)
-        set((state) => ({ slashCommands: { ...state.slashCommands, [chatId]: list } }))
+        // An empty list means the lookup failed; storing it would block every retry.
+        if (list.length) set((state) => ({ slashCommands: { ...state.slashCommands, [chatId]: list } }))
       } catch (error) {
         console.error(error)
       } finally {
@@ -306,9 +311,25 @@ export const createChatsSlice: StateCreator<StoreState, [], [], ChatsSlice> = (s
     openInTui: async (chatId) => {
       const { ptyId } = await api.chat.openInTui(chatId)
       set((state) => ({ tuiPtyByChat: { ...state.tuiPtyByChat, [chatId]: ptyId } }))
-      get().setDrawerTab('tui')
-      get().toggleDrawer(true)
     },
+    backToChat: async (chatId) => {
+      const ptyId = get().tuiPtyByChat[chatId]
+      if (!ptyId) return
+      get().dropTuiPty(ptyId)
+      await api.pty.kill(ptyId)
+    },
+    dropTuiPty: (ptyId) =>
+      set((state) => {
+        const chatId = Object.keys(state.tuiPtyByChat).find((id) => state.tuiPtyByChat[id] === ptyId)
+        if (!chatId) return state
+        return {
+          tuiPtyByChat: withoutKey(state.tuiPtyByChat, chatId),
+          // Main reports the same on its next broadcast; show the chat without waiting for it.
+          chats: state.chats.map((c) =>
+            c.chatId === chatId && c.mode === 'tui' ? { ...c, mode: 'sdk' as const } : c
+          )
+        }
+      }),
     takeOverChat: async (chatId) => {
       const chat = await api.chat.takeOver(chatId)
       set((state) => ({

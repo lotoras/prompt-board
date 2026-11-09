@@ -220,6 +220,11 @@ describe('chat/runner modes, permissions, rewind, probes', () => {
       expect(q.options.allowDangerouslySkipPermissions).toBe(true)
     })
 
+    it('starts every chat with the Claude in Chrome connection (--chrome)', async () => {
+      const q = await openChat(makeChat())
+      expect(q.options.extraArgs).toMatchObject({ chrome: null })
+    })
+
     it('setPermissionMode forwards to the query', async () => {
       const q = await openChat()
       await runner.setPermissionMode('chat1', 'acceptEdits')
@@ -407,6 +412,30 @@ describe('chat/runner modes, permissions, rewind, probes', () => {
       await runner.setPermissionMode('chat1', 'bypassPermissions')
       const res = await q.options.canUseTool('Bash', bashInput, { toolUseID: 't3' })
       expect(res).toEqual({ behavior: 'allow', updatedInput: bashInput })
+    })
+
+    it('allows tools in plan mode with no permission card', async () => {
+      const q = await openChat(makeChat({ permissionMode: 'plan' }))
+      const res = await q.options.canUseTool('Bash', bashInput, { toolUseID: 'tp', suggestions })
+      expect(res).toEqual({ behavior: 'allow', updatedInput: bashInput })
+      expect(upserts().some((i) => i.kind === 'permission')).toBe(false)
+      expect(emitStatus).not.toHaveBeenCalledWith('chat1', 'waiting', 'permission')
+    })
+
+    it('allows tools after switching to plan mode with setPermissionMode', async () => {
+      const q = await openChat(makeChat({ permissionMode: 'default' }))
+      await runner.setPermissionMode('chat1', 'plan')
+      const res = await q.options.canUseTool('Bash', bashInput, { toolUseID: 'tp2' })
+      expect(res).toEqual({ behavior: 'allow', updatedInput: bashInput })
+      expect(upserts().some((i) => i.kind === 'permission')).toBe(false)
+    })
+
+    it('still asks AskUserQuestion and ExitPlanMode in plan mode', async () => {
+      const q = await openChat(makeChat({ permissionMode: 'plan' }))
+      void q.options.canUseTool('AskUserQuestion', { questions: [] }, { toolUseID: 'tq' })
+      await vi.waitFor(() => expect(emitStatus).toHaveBeenCalledWith('chat1', 'waiting', 'question'))
+      void q.options.canUseTool('ExitPlanMode', { plan: 'do it' }, { toolUseID: 'te' })
+      await vi.waitFor(() => expect(emitStatus).toHaveBeenCalledWith('chat1', 'waiting', 'plan'))
     })
 
     it('follows a mode change reported by the CLI', async () => {

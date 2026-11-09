@@ -23,6 +23,7 @@ import {
   type PastSession,
   type PermissionDecision,
   type PersistedChat,
+  type QueuedMessage,
   type PersistedChatsState,
   type PlanDecision,
   type RateLimits,
@@ -33,7 +34,7 @@ import {
 import { accountOfPath, listAccounts } from '../accounts'
 import { getBoards, mutateKanban } from '../kanban/store'
 import { gitInfo, prepareWorkspace } from '../git/git'
-import { listProjects } from '../projects/store'
+import { assertProjectDirectory, listProjects } from '../projects/store'
 import { killPty, spawnPty } from '../pty/manager'
 import type { StatusOverlayEntry } from '../sessions/merge'
 import { stopSessionProcess } from '../sessions/stopSession'
@@ -75,6 +76,7 @@ interface Live {
   ptyId?: string
   contextTokens?: number
   contextWindow?: number
+  queued?: QueuedMessage[]
 }
 
 interface Tail {
@@ -232,7 +234,8 @@ function ownMeta(
     mode: live?.mode === 'tui' ? 'tui' : elsewhere ? 'external' : 'sdk',
     contextTokens: live?.contextTokens ?? parserMeta?.contextTokens,
     contextWindow: live?.contextWindow,
-    totalTokens: session?.totalTokens ?? parserMeta?.totalTokens
+    totalTokens: session?.totalTokens ?? parserMeta?.totalTokens,
+    ...(live?.queued?.length ? { queued: live.queued } : {})
   }
 }
 
@@ -481,6 +484,7 @@ export function initChatService(getWindow: () => BrowserWindow | null): void {
       const live = c.live.get(chatId) ?? { mode: 'sdk' as ChatMode }
       if (patch.contextTokens !== undefined) live.contextTokens = patch.contextTokens
       if (patch.contextWindow !== undefined) live.contextWindow = patch.contextWindow
+      if (patch.queued !== undefined) live.queued = patch.queued
       c.live.set(chatId, live)
       const own = findOwn(chatId)
       if (patch.permissionMode && own && own.permissionMode !== patch.permissionMode) {
@@ -687,6 +691,9 @@ async function send(input: ChatSendInput): Promise<void> {
     c.firstSends.add(chat.chatId)
   }
   try {
+    // A missing folder makes the SDK's spawn fail with ENOENT, which it reports as a bogus
+    // "binary failed to launch (libc)" error. Fail early with the real reason.
+    await assertProjectDirectory(chat.cwd)
     if (!wasStarted) {
       const project = (await listProjects()).find((p) => p.projectKey === chat.projectKey)
       const base = project?.basePath ?? chat.cwd
@@ -867,7 +874,8 @@ async function listCommands(chatId: string): Promise<SlashCommandInfo[]> {
   const key = `${identity.account}:${cwd}`
   const hit = c.commandsCache.get(key)
   if (hit && Date.now() - hit.at < COMMANDS_TTL_MS) return hit.list
-  const list = (await c.runner.commands(chatId)) ?? (await c.runner.probeCommands(cwd, identity.account))
+  const running = await c.runner.commands(chatId)
+  const list = running?.length ? running : await c.runner.probeCommands(cwd, identity.account)
   if (list.length) c.commandsCache.set(key, { at: Date.now(), list })
   return list
 }

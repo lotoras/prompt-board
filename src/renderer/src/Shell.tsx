@@ -13,6 +13,7 @@ import { ChatTabs, MenuButton } from './features/chat/ChatTabs'
 import { ChatView } from './features/chat/ChatView'
 import { Toast } from './features/chat/Toast'
 import { TerminalDrawer } from './features/terminal/TerminalDrawer'
+import { TuiStage } from './features/terminal/TuiStage'
 
 function GlobalTabs(): React.JSX.Element {
   const mode = useStore((s) => s.globalBoardMode)
@@ -30,10 +31,12 @@ function GlobalTabs(): React.JSX.Element {
   )
 }
 
-function ProjectView({ projectKey }: { projectKey: string }): React.JSX.Element {
+function ProjectView({ projectKey }: { projectKey: string }): React.JSX.Element | null {
   const tab = useStore((s) => s.activeTabFor(projectKey))
   const chat = useStore((s) => (tab === BOARD_TAB ? undefined : s.chats.find((c) => c.chatId === tab)))
   if (!chat) return <KanbanBoard projectKey={projectKey} />
+  // TuiStage fills the view while the chat runs in the terminal.
+  if (chat.mode === 'tui') return null
   return <ChatView key={chat.chatId} chat={chat} />
 }
 
@@ -58,6 +61,7 @@ export function Shell(): React.JSX.Element {
               <AktuellesList />
             ))}
           {view.kind === 'project' && <ProjectView projectKey={view.projectKey} />}
+          <TuiStage />
         </div>
         <TerminalDrawer />
       </main>

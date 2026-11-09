@@ -187,6 +187,7 @@ export function XtermView({ ptyId, visible }: XtermViewProps): React.JSX.Element
       }
     }
     wasVisibleRef.current = visible
+    if (visible) termRef.current?.focus()
   }, [visible, ptyId])
 
   return (

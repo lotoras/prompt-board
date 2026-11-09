@@ -9,7 +9,6 @@ import {
   Hand,
   Image as ImageIcon,
   ListChecks,
-  Terminal,
   Paperclip,
   ShieldOff,
   Sparkles,
@@ -38,7 +37,7 @@ import { EffortPopover, EffortTicks, ModelPopover } from './popovers/pickers'
 import { modelColor } from './popovers/pickerData'
 import { Popover } from './popovers/Popover'
 import { ContinueHere } from './ContinueHere'
-import { matchSlashCommands } from './slashMatch'
+import { matchSlashCommands, slashTokenAt } from './slashMatch'
 
 const NO_COMMANDS: SlashCommandInfo[] = []
 
@@ -133,6 +132,9 @@ export function Composer({ chat }: { chat: ChatMeta }): React.JSX.Element {
   const [modeEl, setModeEl] = useState<HTMLButtonElement | null>(null)
   const [slashIndex, setSlashIndex] = useState(0)
   const [slashClosed, setSlashClosed] = useState(false)
+  // Null until the user types or moves the caret; a prefilled draft counts as caret at the end.
+  const [cursor, setCursor] = useState<number | null>(null)
+  const pendingCaret = useRef<number | null>(null)
   const dragDepth = useRef(0)
   const [dragging, setDragging] = useState(false)
   const [sweep, setSweep] = useState(false)
@@ -140,8 +142,8 @@ export function Composer({ chat }: { chat: ChatMeta }): React.JSX.Element {
   const external = chat.mode === 'external'
   const busy = chat.status === 'busy'
   const empty = !draft.text.trim() && draft.attachments.length === 0
-  const slashMatch = /^\/(\S*)$/.exec(draft.text)
-  const slashItems = slashMatch && !slashClosed ? matchSlashCommands(slashMatch[1], commands) : NO_COMMANDS
+  const slashToken = slashTokenAt(draft.text, cursor ?? draft.text.length)
+  const slashItems = slashToken && !slashClosed ? matchSlashCommands(slashToken.query, commands) : NO_COMMANDS
   const slashOpen = slashItems.length > 0
   const slashActive = Math.min(slashIndex, Math.max(0, slashItems.length - 1))
 
@@ -150,6 +152,10 @@ export function Composer({ chat }: { chat: ChatMeta }): React.JSX.Element {
     if (!el) return
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, 240)}px`
+    if (pendingCaret.current !== null) {
+      el.setSelectionRange(pendingCaret.current, pendingCaret.current)
+      pendingCaret.current = null
+    }
   }, [draft.text, chat.mode])
 
   useEffect(() => () => setPopover(null), [chatId, setPopover])
@@ -161,20 +167,6 @@ export function Composer({ chat }: { chat: ChatMeta }): React.JSX.Element {
   }, [sweep])
 
   if (external) return <ContinueHere chat={chat} />
-
-  if (chat.mode === 'tui') {
-    return (
-      <div className="composer">
-        <div className="readonly-note">
-          <Terminal className="i" strokeWidth={1.8} />
-          <span>
-            <b>This chat continues in the terminal below.</b> It updates here live and comes back
-            to this composer when you exit the TUI.
-          </span>
-        </div>
-      </div>
-    )
-  }
 
   const attach = (list: ChatAttachment[]): void => {
     if (list.length === 0) return
@@ -215,7 +207,11 @@ export function Composer({ chat }: { chat: ChatMeta }): React.JSX.Element {
   }
 
   const insertCommand = (name: string): void => {
-    setDraftText(chatId, `/${name} `)
+    if (!slashToken) return
+    const before = `${draft.text.slice(0, slashToken.start)}/${name} `
+    setDraftText(chatId, before + draft.text.slice(slashToken.end))
+    setCursor(before.length)
+    pendingCaret.current = before.length
     textRef.current?.focus()
   }
 
@@ -264,11 +260,14 @@ export function Composer({ chat }: { chat: ChatMeta }): React.JSX.Element {
         }
         onChange={(e) => {
           const value = e.target.value
+          const caret = e.target.selectionStart ?? value.length
           setDraftText(chatId, value)
+          setCursor(caret)
           setSlashIndex(0)
           setSlashClosed(false)
-          if (value.startsWith('/')) void loadSlashCommands(chatId)
+          if (slashTokenAt(value, caret)) void loadSlashCommands(chatId)
         }}
+        onSelect={(e) => setCursor(e.currentTarget.selectionStart)}
         onPaste={onPaste}
         onKeyDown={(e) => {
           if (e.nativeEvent.isComposing) return

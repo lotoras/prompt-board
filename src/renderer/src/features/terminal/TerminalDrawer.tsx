@@ -16,15 +16,11 @@ interface ShellTarget {
 
 export function TerminalDrawer(): React.JSX.Element {
   const open = useStore((s) => s.drawerOpen)
-  const tab = useStore((s) => s.drawerTab)
-  const setTab = useStore((s) => s.setDrawerTab)
   const toggleDrawer = useStore((s) => s.toggleDrawer)
   const view = useStore((s) => s.view)
   const projects = useStore((s) => s.projects)
   const chats = useStore((s) => s.chats)
   const activeByProject = useStore((s) => s.activeByProject)
-  const tuiPtyByChat = useStore((s) => s.tuiPtyByChat)
-  const openInTui = useStore((s) => s.openInTui)
 
   const [shellPty, setShellPty] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
@@ -47,7 +43,7 @@ export function TerminalDrawer(): React.JSX.Element {
 
   const targetKey = target?.key
   const targetCwd = target?.cwd
-  const needsShell = open && tab === 'shell' && targetKey !== undefined && !shellPty[targetKey]
+  const needsShell = open && targetKey !== undefined && !shellPty[targetKey]
 
   useEffect(() => {
     if (!needsShell || !target) return
@@ -83,34 +79,12 @@ export function TerminalDrawer(): React.JSX.Element {
     []
   )
 
-  const tuiPty = chat ? tuiPtyByChat[chat.chatId] : undefined
   const activeShell = targetKey ? shellPty[targetKey] : undefined
-
-  // A chat already running in the TUI (e.g. after a renderer reload) re-attaches to its terminal;
-  // openInTui is idempotent in main and returns the running pty.
-  const chatId = chat?.chatId
-  const reattach = open && tab === 'tui' && chat?.mode === 'tui' && !tuiPty
-  useEffect(() => {
-    if (reattach && chatId) void openInTui(chatId).catch((e) => console.error(e))
-  }, [reattach, chatId, openInTui])
 
   return (
     <section className={`drawer${open ? ' open' : ''}`} aria-label="Terminal">
       <div className="drawer-tabs">
-        <button
-          type="button"
-          className={`dt${tab === 'shell' ? ' on' : ''}`}
-          onClick={() => setTab('shell')}
-        >
-          Shell
-        </button>
-        <button
-          type="button"
-          className={`dt${tab === 'tui' ? ' on' : ''}`}
-          onClick={() => setTab('tui')}
-        >
-          Claude TUI
-        </button>
+        <span className="dt on">Shell</span>
         <span className="grow" />
         <button
           type="button"
@@ -124,52 +98,15 @@ export function TerminalDrawer(): React.JSX.Element {
       <div className="drawer-body">
         <TerminalErrorBoundary>
           {Object.entries(shellPty).map(([key, ptyId]) => (
-            <XtermView
-              key={ptyId}
-              ptyId={ptyId}
-              visible={open && tab === 'shell' && key === targetKey}
-            />
-          ))}
-          {Object.values(tuiPtyByChat).map((ptyId) => (
-            <XtermView
-              key={ptyId}
-              ptyId={ptyId}
-              visible={open && tab === 'tui' && ptyId === tuiPty}
-            />
+            <XtermView key={ptyId} ptyId={ptyId} visible={open && key === targetKey} />
           ))}
         </TerminalErrorBoundary>
-        {tab === 'shell' && !activeShell && (
+        {!activeShell && (
           <div className="drawer-note">
             {error ??
               (target
                 ? 'Starting a shell...'
                 : 'Select a project to open a shell in its folder.')}
-          </div>
-        )}
-        {tab === 'tui' && !tuiPty && (
-          <div className="drawer-note">
-            {chat ? (
-              <>
-                <b>Open in TUI</b> stops the chat here and continues the same session in the Claude Code
-                terminal: <span className="mono">clauded --resume {chat.sessionId}</span>
-                <br />
-                Use it for things the chat view cannot do yet, like /config or /mcp. The chat picks up
-                again here when you exit the terminal.
-                <br />
-                {chat.mode !== 'external' && (
-                  <button
-                    type="button"
-                    className="btn outline"
-                    style={{ marginTop: 10 }}
-                    onClick={() => void openInTui(chat.chatId).catch((e) => console.error(e))}
-                  >
-                    Open in TUI
-                  </button>
-                )}
-              </>
-            ) : (
-              'Open a chat to continue it in the Claude Code terminal.'
-            )}
           </div>
         )}
       </div>

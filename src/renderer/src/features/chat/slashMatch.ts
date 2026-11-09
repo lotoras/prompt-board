@@ -10,6 +10,19 @@ function rank(c: SlashCommandInfo, q: string): number {
   return -1
 }
 
+export interface SlashToken {
+  start: number
+  end: number
+  query: string
+}
+
+/** The `/command` word that ends at the cursor, at the start of the text or after whitespace. */
+export function slashTokenAt(text: string, cursor: number): SlashToken | null {
+  const end = Math.min(cursor, text.length)
+  const match = /(?:^|\s)\/([\w:-]*)$/.exec(text.slice(0, end))
+  return match ? { start: end - match[1].length - 1, end, query: match[1] } : null
+}
+
 export function matchSlashCommands(
   query: string,
   commands: SlashCommandInfo[],

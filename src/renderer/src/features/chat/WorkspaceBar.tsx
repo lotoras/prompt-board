@@ -7,16 +7,17 @@ import { EMPTY_DRAFT, effectiveBranchName } from '../../store/chatsSlice'
 import { useStore } from '../../store'
 import { AccountPopover, BasePopover } from './popovers/pickers'
 
-function TerminalButton(): React.JSX.Element {
-  const toggleDrawer = useStore((s) => s.toggleDrawer)
+function TerminalButton({ chat }: { chat: ChatMeta }): React.JSX.Element | null {
+  const openInTui = useStore((s) => s.openInTui)
+  if (chat.mode === 'external') return null
   return (
     <>
       <span className="grow" />
       <button
         type="button"
         className="ws-pick"
-        title="Toggle terminal (Ctrl+`)"
-        onClick={() => toggleDrawer()}
+        title="Continue this chat in the full-screen Claude terminal"
+        onClick={() => void openInTui(chat.chatId).catch((e) => console.error(e))}
       >
         <Terminal className="i sm" strokeWidth={1.8} />
         <span>Terminal</span>
@@ -73,7 +74,7 @@ export function WorkspaceBar({ chat }: { chat: ChatMeta }): React.JSX.Element {
         ) : (
           <span className="ws-note">in the main checkout</span>
         )}
-        <TerminalButton />
+        <TerminalButton chat={chat} />
       </div>
     )
   }
@@ -164,7 +165,7 @@ export function WorkspaceBar({ chat }: { chat: ChatMeta }): React.JSX.Element {
         />
       )}
       <span className="ws-note" title={note}>{note}</span>
-      <TerminalButton />
+      <TerminalButton chat={chat} />
       {popover === 'account' && (
         <AccountPopover
           anchor={accountEl}

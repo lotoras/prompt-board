@@ -11,6 +11,7 @@ import type {
   PermissionDecision,
   PermissionModeId,
   PlanDecision,
+  QueuedMessage,
   SessionStatus,
   SlashCommandInfo
 } from '../../shared/types'
@@ -114,10 +115,19 @@ interface Slot {
   closed: boolean
   cwd: string
   mode: PermissionModeId
-  turns: number
+  /** Claude is working, or a queued message will start more work. */
+  working: boolean
+  /** Sent while Claude worked, not yet received by Claude. */
+  queued: QueuedEntry[]
   resultWaiters: (() => void)[]
   /** The user asked to stop the running turn; its interrupted result is not an error. */
   stopRequested: boolean
+}
+
+interface QueuedEntry {
+  /** The content the chat shows once Claude has the message. */
+  shown: unknown
+  view: QueuedMessage
 }
 
 interface Queue<T> {
@@ -188,13 +198,66 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
     for (const w of waiters) w()
   }
 
+  function publishQueue(slot: Slot): void {
+    deps.emitMeta(slot.chatId, { queued: slot.queued.map((e) => e.view) })
+  }
+
+  /** Adds the user's message to the chat. One uuid for the item and the SDK message, so the
+   * transcript record matches and an edit can fork at its parent (the chain tip at this moment). */
+  function showUser(chatId: string, uuid: string, shown: unknown): void {
+    const parser = deps.parserFor(chatId)
+    emit(
+      chatId,
+      applyRecord(parser, {
+        type: 'user',
+        uuid,
+        parentUuid: chainTip(parser),
+        message: { role: 'user', content: shown }
+      })
+    )
+  }
+
+  function deliverQueued(slot: Slot, uuid: unknown): void {
+    const at = slot.queued.findIndex((e) => e.view.id === uuid)
+    if (at < 0) return
+    const [entry] = slot.queued.splice(at, 1)
+    showUser(slot.chatId, entry.view.id, entry.shown)
+    publishQueue(slot)
+  }
+
+  /** The session ended before Claude got these messages. Keep their text visible. */
+  function failQueued(slot: Slot): void {
+    if (slot.queued.length === 0) return
+    const entries = slot.queued.splice(0)
+    emit(
+      slot.chatId,
+      entries.map((e) => ({
+        kind: 'system' as const,
+        id: `err-${randomUUID()}`,
+        tone: 'error' as const,
+        text: `Not delivered: ${e.view.text || e.view.attachments.map((a) => a.name).join(', ')}`
+      }))
+    )
+    publishQueue(slot)
+  }
+
   function forget(slot: Slot): void {
     slot.closed = true
     flushWaiters(slot)
     if (slot.idleTimer) clearTimeout(slot.idleTimer)
     slot.idleTimer = null
     slot.queue.end()
+    failQueued(slot)
     if (slots.get(slot.chatId) === slot) slots.delete(slot.chatId)
+  }
+
+  function markIdle(slot: Slot): void {
+    deps.emitStatus(slot.chatId, 'idle')
+    if (!slot.closed) {
+      if (slot.idleTimer) clearTimeout(slot.idleTimer)
+      slot.idleTimer = setTimeout(() => closeSlot(slot), idleCloseMs)
+      slot.idleTimer.unref?.()
+    }
   }
 
   function closeSlot(slot: Slot): void {
@@ -272,8 +335,24 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
     emit(slot.chatId, upsert, clearNote(slot))
   }
 
+  function handleSessionState(slot: Slot, state: unknown): void {
+    if (state === 'running' && !slot.working) {
+      // A turn the CLI started itself, or a message that arrived just after the last turn ended.
+      slot.working = true
+      if (slot.idleTimer) clearTimeout(slot.idleTimer)
+      slot.idleTimer = null
+      deps.emitStatus(slot.chatId, 'busy')
+    } else if (state === 'idle' && slot.queued.length > 0) {
+      // The delivery echo was lost. A message must not stay gray forever.
+      while (slot.queued.length > 0) deliverQueued(slot, slot.queued[0].view.id)
+      slot.working = false
+      markIdle(slot)
+    }
+  }
+
   async function handleResult(slot: Slot, msg: SdkMessage): Promise<void> {
-    slot.turns = Math.max(0, slot.turns - 1)
+    // A queued message that Claude has not received yet starts another turn after this one.
+    slot.working = slot.queued.length > 0
     flushWaiters(slot)
     const upsert: ChatItem[] = []
     const failed =
@@ -299,12 +378,7 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
       })
     )
     emit(slot.chatId, upsert, clearLive(slot))
-    deps.emitStatus(slot.chatId, 'idle')
-    if (!slot.closed) {
-      if (slot.idleTimer) clearTimeout(slot.idleTimer)
-      slot.idleTimer = setTimeout(() => closeSlot(slot), idleCloseMs)
-      slot.idleTimer.unref?.()
-    }
+    if (!slot.working) markIdle(slot)
     try {
       const usage = await slot.query.getContextUsage({ detail: 'summary' })
       if (!slot.closed) {
@@ -339,6 +413,10 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
       }
       case 'assistant':
       case 'user': {
+        if (msg.isReplay) {
+          deliverQueued(slot, msg.uuid)
+          return
+        }
         const content = msg.message?.content
         if (
           msg.type === 'user' &&
@@ -369,6 +447,8 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
         }
         if (msg.subtype === 'status') {
           handleStatus(slot, msg)
+        } else if (msg.subtype === 'session_state_changed') {
+          handleSessionState(slot, msg.state)
         } else if (msg.subtype === 'api_retry') {
           showNote(slot, `API error. Retrying (attempt ${msg.attempt} of ${msg.max_retries})`)
         } else if (
@@ -434,7 +514,7 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
       }
     ): Promise<PermissionResult> => {
       const interactive = name === 'AskUserQuestion' || name === 'ExitPlanMode'
-      if (!interactive && slot.mode === 'bypassPermissions') {
+      if (!interactive && (slot.mode === 'bypassPermissions' || slot.mode === 'plan')) {
         return Promise.resolve({ behavior: 'allow', updatedInput: input })
       }
       const id = opts?.toolUseID ?? randomUUID()
@@ -499,6 +579,8 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
     const account = chat.account ?? 1
     const env = withAccountEnv(process.env, account)
     delete env.ANTHROPIC_API_KEY
+    // The authoritative end-of-work signal; it clears queued messages whose echo was lost.
+    env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS = '1'
     const fork = forkAt.get(chat.chatId)
     forkAt.delete(chat.chatId)
     const resume = chat.started || startedSessions.has(chat.sessionId) || fork !== undefined
@@ -513,6 +595,9 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
       allowDangerouslySkipPermissions: true,
       enableFileCheckpointing: true,
       includePartialMessages: true,
+      // Always start with the Claude in Chrome connection (same as `claude --chrome`).
+      // The replay flag echoes each message when Claude receives it, which ends its queued state.
+      extraArgs: { chrome: null, 'replay-user-messages': null },
       env,
       canUseTool: (name: string, input: Record<string, unknown>, opts: SdkMessage) =>
         makeCanUseTool(slotRef.current as Slot)(name, input, opts),
@@ -535,7 +620,8 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
       closed: false,
       cwd: chat.cwd,
       mode: chat.permissionMode,
-      turns: 0,
+      working: false,
+      queued: [],
       resultWaiters: [],
       stopRequested: false
     }
@@ -562,7 +648,7 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
       if (slot.idleTimer) clearTimeout(slot.idleTimer)
       slot.idleTimer = null
 
-      if (opts?.interrupt && slot.turns > 0) {
+      if (opts?.interrupt && slot.working) {
         const settled = new Promise<void>((resolve) => {
           const timer = setTimeout(resolve, INTERRUPT_WAIT_MS)
           slot.resultWaiters.push(() => {
@@ -602,21 +688,23 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
         shown = [...images.map(() => ({ type: 'image' })), { type: 'text', text }]
       }
 
-      // One uuid for the local item and the SDK message, so the transcript record matches and
-      // an edit can fork at its parent (the chain tip when it was sent).
       const uuid = randomUUID()
-      const parser = deps.parserFor(chat.chatId)
-      emit(
-        chat.chatId,
-        applyRecord(parser, {
-          type: 'user',
-          uuid,
-          parentUuid: chainTip(parser),
-          message: { role: 'user', content: shown }
+      // Stop and send with messages already waiting: the CLI runs those first, so this one waits too.
+      if (slot.working && !(opts?.interrupt && slot.queued.length === 0)) {
+        slot.queued.push({
+          shown,
+          view: {
+            id: uuid,
+            text: input.text,
+            attachments: input.attachments.map((a) => ({ name: a.name, kind: a.kind }))
+          }
         })
-      )
-      deps.emitStatus(chat.chatId, 'busy')
-      slot.turns++
+        publishQueue(slot)
+      } else {
+        showUser(chat.chatId, uuid, shown)
+        deps.emitStatus(chat.chatId, 'busy')
+        slot.working = true
+      }
       slot.queue.push({
         type: 'user',
         uuid,
@@ -628,7 +716,7 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
     async interrupt(chatId) {
       const slot = slots.get(chatId)
       if (!slot) return
-      if (slot.turns > 0) slot.stopRequested = true
+      if (slot.working) slot.stopRequested = true
       denyPending(slot, { behavior: 'deny', message: 'Interrupted', interrupt: true })
       await slot.query.interrupt()
     },

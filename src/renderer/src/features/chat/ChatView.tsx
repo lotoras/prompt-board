@@ -15,6 +15,7 @@ import { EditDiff } from './items/EditDiff'
 import { PermissionCard } from './items/PermissionCard'
 import { PlanCard } from './items/PlanCard'
 import { QuestionCard } from './items/QuestionCard'
+import { QueuedMessages } from './items/QueuedMessages'
 import { SystemNote } from './items/SystemNote'
 import { UserMessage } from './items/UserMessage'
 import { WorkLog } from './items/WorkLog'
@@ -93,11 +94,10 @@ export function ChatView({ chat }: { chat: ChatMeta }): React.JSX.Element {
   useEffect(() => {
     const el = messagesRef.current
     if (el && stickRef.current) el.scrollTop = el.scrollHeight
-  }, [chat.chatId, blocks.length, tail])
+  }, [chat.chatId, blocks.length, tail, chat.queued?.length])
 
   const tone = statusTone(chat)
   const external = chat.mode === 'external'
-  const inTui = chat.mode === 'tui'
   const draft = !chat.started && items.length === 0
 
   return (
@@ -118,7 +118,7 @@ export function ChatView({ chat }: { chat: ChatMeta }): React.JSX.Element {
             ) : (
               <span className={`dot ${tone}`} />
             )}
-            {external ? 'Running elsewhere' : inTui ? 'Running in TUI' : (STATUS_LABEL[tone] ?? tone)}
+            {external ? 'Running elsewhere' : (STATUS_LABEL[tone] ?? tone)}
           </span>
           <span className="head-spacer" />
           {card && (
@@ -138,7 +138,7 @@ export function ChatView({ chat }: { chat: ChatMeta }): React.JSX.Element {
             </span>
           ) : null}
           <span className="head-meta when">{formatRelativeTime(chat.updatedAt)}</span>
-          {!external && !inTui && (
+          {!external && (
             <button
               type="button"
               className="ghost-btn"
@@ -174,6 +174,7 @@ export function ChatView({ chat }: { chat: ChatMeta }): React.JSX.Element {
             {blocks.map((block, i) => (
               <Block key={blockKey(block, i)} block={block} chatId={chat.chatId} />
             ))}
+            <QueuedMessages chat={chat} />
           </div>
         </div>
       )}
