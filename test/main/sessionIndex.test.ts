@@ -172,6 +172,16 @@ describe('chat/sessionIndex listProjectSessions', () => {
     expect(out.map((s) => s.sessionId)).toEqual(['real'])
   })
 
+  it('skips `offset` matching sessions (paging)', async () => {
+    await write('enc-a', 'a.jsonl', session(CWD, 'a'), 3_000)
+    await write('enc-a', 'b.jsonl', session(CWD, 'b'), 2_000)
+    await write('enc-a', 'c.jsonl', session(CWD, 'c'), 1_000)
+    await write('enc-b', 'other.jsonl', session('C:\\work\\p2', 'other'), 2_500)
+
+    const out = await listProjectSessions(PROJECT, { projectsDir: dir, offset: 1, limit: 1 })
+    expect(out.map((s) => s.sessionId)).toEqual(['b'])
+  })
+
   it('honours limit', async () => {
     for (let i = 1; i <= 5; i++) {
       await write('enc-a', `s${i}.jsonl`, session(CWD, 'p' + i), i * 1000)

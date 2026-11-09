@@ -620,6 +620,7 @@ export const IPC_CHANNELS = {
     restart: 'chat:restart',
     listSessions: 'chat:listSessions',
     listCommands: 'chat:listCommands',
+    takeOver: 'chat:takeOver',
     changed: 'chat:changed',
     items: 'chat:items'
   },
@@ -711,8 +712,10 @@ export interface Api {
     decidePermission(chatId: string, toolUseId: string, decision: PermissionDecision): Promise<void>
     rewind(input: ChatRewindInput): Promise<void>
     restart(chatId: string, mode: ChatRestartMode): Promise<ChatMeta>
-    /** Past sessions of the project, newest first (max 50). */
-    listSessions(projectKey: string): Promise<PastSession[]>
+    /** Past sessions of the project, newest first, one page (50) from `offset`. */
+    listSessions(projectKey: string, opts?: { offset?: number }): Promise<PastSession[]>
+    /** Ends the process running this session elsewhere and opens the session as a chat here. */
+    takeOver(chatId: string): Promise<ChatMeta>
     /** Slash commands and skills available in that chat's folder (cached per cwd). */
     listCommands(chatId: string): Promise<SlashCommandInfo[]>
     onChanged(cb: (chats: ChatMeta[]) => void): () => void

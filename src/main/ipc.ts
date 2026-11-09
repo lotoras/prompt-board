@@ -195,8 +195,13 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IPC_CHANNELS.chat.restart, (_event, chatId: string, mode: ChatRestartMode) =>
     chatService.restart(chatId, mode)
   )
-  ipcMain.handle(IPC_CHANNELS.chat.listSessions, (_event, projectKey: string) =>
-    chatService.listSessions(projectKey)
+  ipcMain.handle(
+    IPC_CHANNELS.chat.listSessions,
+    (_event, projectKey: string, opts?: { offset?: number }) =>
+      chatService.listSessions(projectKey, opts)
+  )
+  ipcMain.handle(IPC_CHANNELS.chat.takeOver, (_event, chatId: string) =>
+    chatService.takeOver(chatId)
   )
   ipcMain.handle(IPC_CHANNELS.chat.listCommands, (_event, chatId: string) =>
     chatService.listCommands(chatId)

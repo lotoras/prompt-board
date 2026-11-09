@@ -9,7 +9,6 @@ import {
   Hand,
   Image as ImageIcon,
   ListChecks,
-  Monitor,
   Terminal,
   Paperclip,
   ShieldOff,
@@ -38,6 +37,7 @@ import { useStore } from '../../store'
 import { EffortPopover, EffortTicks, ModelPopover } from './popovers/pickers'
 import { modelColor } from './popovers/pickerData'
 import { Popover } from './popovers/Popover'
+import { ContinueHere } from './ContinueHere'
 import { matchSlashCommands } from './slashMatch'
 
 const NO_COMMANDS: SlashCommandInfo[] = []
@@ -160,26 +160,17 @@ export function Composer({ chat }: { chat: ChatMeta }): React.JSX.Element {
     return () => clearTimeout(t)
   }, [sweep])
 
-  if (external || chat.mode === 'tui') {
+  if (external) return <ContinueHere chat={chat} />
+
+  if (chat.mode === 'tui') {
     return (
       <div className="composer">
         <div className="readonly-note">
-          {external ? (
-            <Monitor className="i" strokeWidth={1.8} />
-          ) : (
-            <Terminal className="i" strokeWidth={1.8} />
-          )}
-          {external ? (
-            <span>
-              <b>This session runs in another terminal.</b> It updates here live, and you can
-              continue it here once it ends.
-            </span>
-          ) : (
-            <span>
-              <b>This chat continues in the terminal below.</b> It updates here live and comes back
-              to this composer when you exit the TUI.
-            </span>
-          )}
+          <Terminal className="i" strokeWidth={1.8} />
+          <span>
+            <b>This chat continues in the terminal below.</b> It updates here live and comes back
+            to this composer when you exit the TUI.
+          </span>
         </div>
       </div>
     )

@@ -138,8 +138,9 @@ const api: Api = {
     rewind: (input: ChatRewindInput) => ipcRenderer.invoke(IPC_CHANNELS.chat.rewind, input),
     restart: (chatId: string, mode: ChatRestartMode) =>
       ipcRenderer.invoke(IPC_CHANNELS.chat.restart, chatId, mode),
-    listSessions: (projectKey: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.chat.listSessions, projectKey),
+    listSessions: (projectKey: string, opts?: { offset?: number }) =>
+      ipcRenderer.invoke(IPC_CHANNELS.chat.listSessions, projectKey, opts),
+    takeOver: (chatId: string) => ipcRenderer.invoke(IPC_CHANNELS.chat.takeOver, chatId),
     listCommands: (chatId: string) => ipcRenderer.invoke(IPC_CHANNELS.chat.listCommands, chatId),
     onChanged: (cb: (chats: ChatMeta[]) => void) => {
       const listener = (_event: unknown, chats: ChatMeta[]): void => cb(chats)

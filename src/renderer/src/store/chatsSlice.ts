@@ -68,6 +68,7 @@ export interface ChatsSlice {
   closeChat: (chatId: string) => Promise<void>
   toggleChatAck: (chatId: string) => void
   openInTui: (chatId: string) => Promise<void>
+  takeOverChat: (chatId: string) => Promise<void>
   chatsFor: (projectKey: string) => ChatMeta[]
   activeTabFor: (projectKey: string) => string
 }
@@ -300,6 +301,14 @@ export const createChatsSlice: StateCreator<StoreState, [], [], ChatsSlice> = (s
       set((state) => ({ tuiPtyByChat: { ...state.tuiPtyByChat, [chatId]: ptyId } }))
       get().setDrawerTab('tui')
       get().toggleDrawer(true)
+    },
+    takeOverChat: async (chatId) => {
+      const chat = await api.chat.takeOver(chatId)
+      set((state) => ({
+        chats: [...state.chats.filter((c) => c.chatId !== chatId && c.chatId !== chat.chatId), chat],
+        activeByProject: { ...state.activeByProject, [chat.projectKey]: chat.chatId }
+      }))
+      fire(() => api.chat.setActive(chat.projectKey, chat.chatId))
     },
     chatsFor: (projectKey) => get().chats.filter((c) => c.projectKey === projectKey),
     activeTabFor: (projectKey) => {

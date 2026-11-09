@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { History, Menu, Monitor, Plus, SquareKanban, X } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { modelLabel } from '../../../../shared/chat'
@@ -127,12 +127,18 @@ function TabMenu({ menu, onClose }: { menu: TabMenuState; onClose: () => void })
   )
 }
 
+/** Page size of `api.chat.listSessions`; a shorter page means there is nothing more to load. */
+const SESSION_PAGE = 50
+const SCROLL_LOAD_MARGIN = 80
+
 function ResumePicker({ projectKey }: { projectKey: string }): React.JSX.Element {
   const createChat = useStore((s) => s.createChat)
   const [open, setOpen] = useState(false)
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null)
   const [sessions, setSessions] = useState<PastSession[] | null>(null)
   const [query, setQuery] = useState('')
+  const [hasMore, setHasMore] = useState(false)
+  const loadingMore = useRef(false)
 
   useEffect(() => {
     if (!open) return
@@ -140,7 +146,9 @@ function ResumePicker({ projectKey }: { projectKey: string }): React.JSX.Element
     api.chat
       .listSessions(projectKey)
       .then((list) => {
-        if (!cancelled) setSessions(list)
+        if (cancelled) return
+        setSessions(list)
+        setHasMore(list.length >= SESSION_PAGE)
       })
       .catch((e) => {
         console.error(e)
@@ -159,9 +167,43 @@ function ResumePicker({ projectKey }: { projectKey: string }): React.JSX.Element
       : sessions
   }, [sessions, query])
 
+  const loaded = sessions?.length ?? 0
+  const loadMore = useCallback((): void => {
+    if (loadingMore.current || !hasMore) return
+    loadingMore.current = true
+    api.chat
+      .listSessions(projectKey, { offset: loaded })
+      .then((list) => {
+        setSessions((prev) => {
+          const seen = new Set((prev ?? []).map((s) => s.sessionId))
+          return [...(prev ?? []), ...list.filter((s) => !seen.has(s.sessionId))]
+        })
+        setHasMore(list.length >= SESSION_PAGE)
+      })
+      .catch((e) => {
+        console.error(e)
+        setHasMore(false)
+      })
+      .finally(() => {
+        loadingMore.current = false
+      })
+  }, [hasMore, loaded, projectKey])
+
+  // A search must also cover sessions that are not loaded yet.
+  const searching = query.trim().length > 0
+  useEffect(() => {
+    if (open && searching && hasMore) loadMore()
+  }, [open, searching, hasMore, loaded, loadMore])
+
+  const onListScroll = (e: React.UIEvent<HTMLDivElement>): void => {
+    const el = e.currentTarget
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - SCROLL_LOAD_MARGIN) loadMore()
+  }
+
   const close = (): void => {
     setOpen(false)
     setQuery('')
+    setHasMore(false)
   }
 
   return (
@@ -186,7 +228,7 @@ function ResumePicker({ projectKey }: { projectKey: string }): React.JSX.Element
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
-            <div className="resume-list">
+            <div className="resume-list" onScroll={onListScroll}>
               {sessions === null && <div className="resume-empty">Loading sessions…</div>}
               {sessions && sessions.length === 0 && (
                 <div className="resume-empty">No past sessions for this project yet.</div>
@@ -216,6 +258,10 @@ function ResumePicker({ projectKey }: { projectKey: string }): React.JSX.Element
                   </span>
                 </button>
               ))}
+              {hasMore && <div className="resume-empty">Loading more…</div>}
+              {!hasMore && searching && filtered.length === 0 && (
+                <div className="resume-empty">No sessions match your search.</div>
+              )}
             </div>
           </div>
         </Popover>

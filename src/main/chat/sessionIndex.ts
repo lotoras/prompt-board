@@ -120,10 +120,11 @@ function worktreeOf(key: string, projectKey: string): string | undefined {
 
 export async function listProjectSessions(
   projectKey: string,
-  opts: { projectsDir?: string; limit?: number } = {}
+  opts: { projectsDir?: string; limit?: number; offset?: number } = {}
 ): Promise<Indexed[]> {
   const root = opts.projectsDir ?? join(os.homedir(), '.claude', 'projects')
   const limit = opts.limit ?? 50
+  let toSkip = opts.offset ?? 0
   let dirs: string[]
   try {
     dirs = (await fs.readdir(root, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name)
@@ -159,6 +160,10 @@ export async function listProjectSessions(
     const key = pathKey(s.cwd)
     const worktreeRel = worktreeOf(key, projectKey)
     if (key !== projectKey && !worktreeRel) continue
+    if (toSkip > 0) {
+      toSkip--
+      continue
+    }
     out.push({
       sessionId: f.sessionId,
       title: s.title ?? s.firstPrompt,

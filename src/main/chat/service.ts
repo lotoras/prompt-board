@@ -34,6 +34,7 @@ import { gitInfo, prepareWorkspace } from '../git/git'
 import { listProjects } from '../projects/store'
 import { killPty, spawnPty } from '../pty/manager'
 import type { StatusOverlayEntry } from '../sessions/merge'
+import { stopSessionProcess } from '../sessions/stopSession'
 import { locateTranscript } from '../sessions/transcript'
 import {
   buildCurrentSnapshot,
@@ -58,6 +59,8 @@ import {
 } from './transcriptParser'
 
 const SDK_MODULE = '@anthropic-ai/claude-agent-sdk'
+/** How long a process this app just closed may stay in the registry before it counts as foreign. */
+const RELEASE_GRACE_MS = 8000
 const BROADCAST_MS = 50
 const TITLE_MAX = 60
 const PLACEHOLDER_TITLES = new Set(['New chat', 'Chat'])
@@ -88,6 +91,8 @@ interface Ctx {
   tails: Map<string, Tail>
   histories: Map<string, Promise<void>>
   firstSends: Set<string>
+  /** sessionId -> when this app last closed its process (it may linger in the registry). */
+  released: Map<string, number>
   snapshot: SessionsSnapshot | null
   unsubscribe: () => void
   broadcastTimer: ReturnType<typeof setTimeout> | null
@@ -185,6 +190,12 @@ function ownMeta(
   const o = c.overlay.get(chat.sessionId)
   const parserMeta = c.parsers.has(chat.chatId) ? getMeta(parserFor(chat.chatId)) : undefined
 
+  // Live in the registry but not driven by this app: another process owns the session.
+  const elsewhere =
+    session !== undefined &&
+    !c.runner.isRunning(chat.chatId) &&
+    live?.mode !== 'tui' &&
+    Date.now() - (c.released.get(chat.sessionId) ?? 0) > RELEASE_GRACE_MS
   let status: ChatMeta['status'] = 'idle'
   let waitingFor: string | undefined
   let statusUpdatedAt: number | undefined
@@ -214,7 +225,7 @@ function ownMeta(
     ...(waitingFor !== undefined ? { waitingFor } : {}),
     ...(acknowledged !== undefined ? { acknowledged } : {}),
     ...(statusUpdatedAt !== undefined ? { statusUpdatedAt } : {}),
-    mode: live?.mode ?? 'sdk',
+    mode: live?.mode === 'tui' ? 'tui' : elsewhere ? 'external' : 'sdk',
     contextTokens: live?.contextTokens ?? parserMeta?.contextTokens,
     contextWindow: live?.contextWindow,
     totalTokens: session?.totalTokens ?? parserMeta?.totalTokens
@@ -412,6 +423,7 @@ export function initChatService(getWindow: () => BrowserWindow | null): void {
     tails: new Map(),
     histories: new Map(),
     firstSends: new Set(),
+    released: new Map(),
     snapshot: null,
     unsubscribe: () => {},
     broadcastTimer: null,
@@ -548,9 +560,12 @@ async function create(input: ChatCreateInput): Promise<ChatCreateResult> {
   }
 
   const project = (await listProjects()).find((p) => p.projectKey === input.projectKey)
-  if (!project?.basePath) throw new Error(`Unknown project: ${input.projectKey}`)
+  // A resumed session may belong to an auto-discovered folder with no saved project.
+  if (!project?.basePath && !input.resumeSessionId) {
+    throw new Error(`Unknown project: ${input.projectKey}`)
+  }
 
-  let cwd = project.basePath
+  let cwd = project?.basePath ?? ''
   let resumed: TranscriptMeta | undefined
   if (input.resumeSessionId) {
     resumed = await transcriptMetaOf(input.resumeSessionId)
@@ -560,6 +575,7 @@ async function create(input: ChatCreateInput): Promise<ChatCreateResult> {
     )?.link?.cwd
     cwd = live ?? resumed?.cwd ?? linked ?? cwd
   }
+  if (!cwd) throw new Error(`Unknown project: ${input.projectKey}`)
   const worktreeMark = `${input.projectKey}/.claude/worktrees/`
   const worktreeSlugOfCwd = pathKey(cwd).startsWith(worktreeMark)
     ? pathKey(cwd).slice(worktreeMark.length).split('/')[0]
@@ -631,6 +647,7 @@ async function send(input: ChatSendInput): Promise<void> {
   const chat = findOwn(input.chatId)
   if (!chat) throw new Error('This session is read-only here')
   if (c.live.get(chat.chatId)?.mode === 'tui') throw new Error('This chat is open in the terminal')
+  assertNotElsewhere(chat.chatId)
 
   const wasStarted = chat.started
   if (!wasStarted) {
@@ -711,6 +728,7 @@ async function restart(chatId: string, mode: ChatRestartMode): Promise<ChatMeta>
   const c = await ready()
   const chat = findOwn(chatId)
   if (!chat) throw new Error(`Unknown chat: ${chatId}`)
+  c.released.set(chat.sessionId, Date.now())
   c.runner.close(chatId)
   c.overlay.delete(chat.sessionId)
   if (mode === 'fresh') {
@@ -755,6 +773,8 @@ async function rewind(input: ChatRewindInput): Promise<void> {
   const c = await ready()
   const chat = findOwn(input.chatId)
   if (!chat) throw new Error('This session is read-only here')
+  assertNotElsewhere(input.chatId)
+  c.released.set(chat.sessionId, Date.now())
   await ensureHistory(input.chatId)
   const parser = parserFor(input.chatId)
   const edited = getItems(parser).find((i) => i.id === input.userItemId)
@@ -797,9 +817,9 @@ async function rewind(input: ChatRewindInput): Promise<void> {
   return send_()
 }
 
-async function listSessions(projectKey: string): Promise<PastSession[]> {
+async function listSessions(projectKey: string, opts?: { offset?: number }): Promise<PastSession[]> {
   const c = await ready()
-  const past = await listProjectSessions(projectKey)
+  const past = await listProjectSessions(projectKey, opts)
   const open = new Map(c.state.chats.map((chat) => [chat.sessionId, chat.chatId]))
   return past.map((s) => {
     const openChatId = open.get(s.sessionId)
@@ -850,6 +870,37 @@ async function setActive(projectKey: string, tab: string): Promise<void> {
   void persist()
 }
 
+function assertNotElsewhere(chatId: string): void {
+  if (metaFor(chatId)?.mode === 'external') {
+    throw new Error('This session is running in another terminal. Use Continue here first.')
+  }
+}
+
+/** Ends the process running this session elsewhere and opens the session as a chat here. */
+async function takeOver(chatId: string): Promise<ChatMeta> {
+  const c = await ready()
+  const own = findOwn(chatId)
+  const sessionId = own?.sessionId ?? (chatId.startsWith('ext:') ? chatId.slice(4) : undefined)
+  if (!sessionId) throw new Error('Chat not found')
+  const entry = sessionIndex().get(sessionId)
+  const projectKey = own?.projectKey ?? entry?.projectKey
+  if (!projectKey) throw new Error('This session has already ended. Open it from Resume a session.')
+  const title = entry?.session.aiTitle ?? entry?.session.name
+  if (entry) await stopSessionProcess(entry.session)
+  await refreshSnapshotNow(c.getWindow)
+  if (own) {
+    c.state.activeByProject[projectKey] = own.chatId
+    changed()
+    return metaFor(own.chatId) as ChatMeta
+  }
+  const { chat } = await create({
+    projectKey,
+    resumeSessionId: sessionId,
+    ...(title ? { title } : {})
+  })
+  return chat
+}
+
 async function openInTui(chatId: string): Promise<{ ptyId: string }> {
   const c = await ready()
   const chat = findOwn(chatId)
@@ -858,7 +909,9 @@ async function openInTui(chatId: string): Promise<{ ptyId: string }> {
   // drawer re-attaches instead of starting a second clauded on the same session.
   const running = c.live.get(chatId)
   if (running?.mode === 'tui' && running.ptyId) return { ptyId: running.ptyId }
+  assertNotElsewhere(chatId)
   await ensureHistory(chatId)
+  c.released.set(chat.sessionId, Date.now())
   c.runner.close(chatId)
   c.overlay.delete(chat.sessionId)
   const { ptyId } = await spawnPty(
@@ -874,6 +927,7 @@ async function openInTui(chatId: string): Promise<{ ptyId: string }> {
         live.mode = 'sdk'
         live.ptyId = undefined
       }
+      c.released.set(chat.sessionId, Date.now())
       void tailChat(chatId).then(scheduleBroadcast)
     }
   )
@@ -916,5 +970,6 @@ export const chatService = {
   history,
   setActive,
   openInTui,
+  takeOver,
   shutdown
 }
