@@ -587,6 +587,30 @@ export interface GitInfo {
   dirty?: boolean
 }
 
+/** One file that differs from the chat's git base (see `GitChanges`). */
+export interface GitChangedFile {
+  /** Repo-relative, with `/`. */
+  path: string
+  status: 'modified' | 'added' | 'deleted' | 'renamed'
+  oldPath?: string
+  added: number
+  removed: number
+  binary?: boolean
+  diff: DiffBlock
+}
+
+/**
+ * Every change in a working directory, whatever tool made it: the working tree (staged,
+ * unstaged and untracked) against `HEAD`, or against the merge-base with the main branch
+ * when the checkout is on another branch.
+ */
+export interface GitChanges {
+  isRepo: boolean
+  /** The main branch name when the base is its merge-base, else `HEAD`. */
+  baseLabel?: string
+  files: GitChangedFile[]
+}
+
 export interface ModelOption {
   id: string
   name: string
@@ -668,7 +692,8 @@ export const IPC_CHANNELS = {
   },
   git: {
     info: 'git:info',
-    branches: 'git:branches'
+    branches: 'git:branches',
+    changes: 'git:changes'
   },
   rate: {
     get: 'rate:get',
@@ -770,6 +795,8 @@ export interface Api {
     info(cwd: string): Promise<GitInfo>
     /** Local branches of the project's repo, current branch first. */
     branches(projectKey: string): Promise<string[]>
+    /** Every change in `cwd` (see `GitChanges`). */
+    changes(cwd: string): Promise<GitChanges>
   }
   rate: {
     get(): Promise<RateLimits>

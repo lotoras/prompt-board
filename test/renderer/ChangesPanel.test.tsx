@@ -3,9 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { makeChat, tool } from './chatFixtures'
 
-const { chat } = vi.hoisted(() => ({ chat: { update: vi.fn(), listCommands: vi.fn(), setActive: vi.fn() } }))
+const { chat, changes } = vi.hoisted(() => ({
+  chat: { update: vi.fn(), listCommands: vi.fn(), setActive: vi.fn() },
+  changes: vi.fn()
+}))
 vi.mock('../../src/renderer/src/lib/api', () => ({
-  api: { chat, git: { branches: vi.fn().mockResolvedValue(['main']) } }
+  api: { chat, git: { branches: vi.fn().mockResolvedValue(['main']), changes } }
 }))
 
 import { ChangesPanel } from '../../src/renderer/src/features/chat/ChangesPanel'
@@ -98,5 +101,80 @@ describe('ChatView Changes toggle', () => {
     expect(useStore.getState().changesOpen).toBe(true)
     fireEvent.click(button)
     expect(useStore.getState().changesOpen).toBe(false)
+  })
+})
+
+describe('ChangesPanel git source', () => {
+  const gitFile = (
+    path: string,
+    text: string,
+    extra: Record<string, unknown> = {}
+  ): Record<string, unknown> => ({
+    path,
+    status: 'modified',
+    added: 2,
+    removed: 1,
+    diff: { file: path, added: 2, removed: 1, lines: [{ type: 'add', newNo: 1, text }] },
+    ...extra
+  })
+
+  it('lists the git files with totals, the first diff and a tag for new files', async () => {
+    changes.mockResolvedValue({
+      isRepo: true,
+      baseLabel: 'main',
+      files: [
+        gitFile('src/a.ts', 'git-line-a'),
+        gitFile('src/fresh.ts', 'git-line-fresh', { status: 'added', added: 5, removed: 0 })
+      ]
+    })
+    seed([edit('e1', 'tool/only.ts', 'tool-line')])
+    render(<ChangesPanel chat={c} />)
+    expect(await screen.findByText('git-line-a')).toBeTruthy()
+    expect(changes).toHaveBeenCalledWith(c.cwd)
+    const rows = screen.getAllByRole('option')
+    expect(rows.map((r) => r.getAttribute('title'))).toEqual(['src/a.ts', 'src/fresh.ts'])
+    expect(rows[0].textContent).toContain('+2')
+    expect(rows[0].textContent).toContain('−1')
+    expect(rows[1].textContent).toContain('+5')
+    expect(rows[1].textContent).toContain('new')
+    expect(screen.queryByText('tool-line')).toBeNull()
+  })
+
+  it('notes a binary file instead of showing lines', async () => {
+    changes.mockResolvedValue({
+      isRepo: true,
+      baseLabel: 'main',
+      files: [
+        {
+          path: 'img/logo.png',
+          status: 'modified',
+          added: 0,
+          removed: 0,
+          binary: true,
+          diff: { file: 'img/logo.png', added: 0, removed: 0, lines: [] }
+        }
+      ]
+    })
+    seed([])
+    render(<ChangesPanel chat={c} />)
+    expect(await screen.findByText(/Binary file/)).toBeTruthy()
+  })
+
+  it('tells when the repo has no changes', async () => {
+    changes.mockResolvedValue({ isRepo: true, files: [] })
+    seed([edit('e1', 'src/a.ts', 'tool-line')])
+    render(<ChangesPanel chat={c} />)
+    expect(await screen.findByText('No changes in this folder yet.')).toBeTruthy()
+  })
+
+  it('falls back to the tool list when the git call rejects', async () => {
+    changes.mockRejectedValue(new Error('boom'))
+    seed([edit('e1', 'src/a.ts', 'tool-line')])
+    render(<ChangesPanel chat={c} />)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(screen.getByText('tool-line')).toBeTruthy()
+    expect(screen.getByText('1 changed file')).toBeTruthy()
   })
 })

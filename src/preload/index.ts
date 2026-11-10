@@ -155,7 +155,8 @@ const api: Api = {
   },
   git: {
     info: (cwd: string) => ipcRenderer.invoke(IPC_CHANNELS.git.info, cwd),
-    branches: (projectKey: string) => ipcRenderer.invoke(IPC_CHANNELS.git.branches, projectKey)
+    branches: (projectKey: string) => ipcRenderer.invoke(IPC_CHANNELS.git.branches, projectKey),
+    changes: (cwd: string) => ipcRenderer.invoke(IPC_CHANNELS.git.changes, cwd)
   },
   rate: {
     get: () => ipcRenderer.invoke(IPC_CHANNELS.rate.get),

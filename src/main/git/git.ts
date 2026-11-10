@@ -2,7 +2,8 @@ import { execFile } from 'child_process'
 import { promises as fs } from 'fs'
 import { dirname, join, relative } from 'path'
 import { worktreeSlug } from '../../shared/chat'
-import type { GitInfo, WorkspacePlan } from '../../shared/types'
+import type { GitChangedFile, GitChanges, GitInfo, WorkspacePlan } from '../../shared/types'
+import { diffForWrite, diffFromPatch, type PatchHunk } from '../chat/diff'
 
 const CACHE_MS = 5000
 const WORKTREES_REL = '.claude/worktrees'
@@ -86,6 +87,133 @@ export function gitInfo(cwd: string): Promise<GitInfo> {
 
 export function clearGitCache(): void {
   cache.clear()
+}
+
+const MAX_UNTRACKED = 100
+const MAX_UNTRACKED_BYTES = 512 * 1024
+
+/** The main branch's ref: `origin/HEAD`'s branch, else `main`, else `master` (local or on origin). */
+async function mainBranch(top: string): Promise<{ name: string; ref: string } | null> {
+  const names: string[] = []
+  const originHead = await run(top, ['rev-parse', '--abbrev-ref', 'origin/HEAD'])
+  if (originHead.ok && originHead.stdout.startsWith('origin/')) names.push(originHead.stdout.slice(7))
+  names.push('main', 'master')
+  for (const name of names) {
+    for (const ref of [`refs/heads/${name}`, `refs/remotes/origin/${name}`]) {
+      if ((await run(top, ['rev-parse', '--verify', '-q', ref])).ok) return { name, ref }
+    }
+  }
+  return null
+}
+
+/** `HEAD`, or the merge-base with the main branch when the checkout is on another branch. */
+async function changesBase(top: string): Promise<{ base: string; label: string }> {
+  const head = await run(top, ['symbolic-ref', '--short', '-q', 'HEAD'])
+  const main = head.ok && head.stdout ? await mainBranch(top) : null
+  if (main && head.stdout !== main.name) {
+    const mb = await run(top, ['merge-base', 'HEAD', main.ref])
+    if (mb.ok && mb.stdout) return { base: mb.stdout, label: main.name }
+  }
+  return { base: 'HEAD', label: 'HEAD' }
+}
+
+function unquote(path: string): string {
+  return path.length > 1 && path.startsWith('"') && path.endsWith('"') ? path.slice(1, -1) : path
+}
+
+/** `a/<p> b/<p>` from a `diff --git` line, when both sides are the same path. */
+function headerPath(rest: string): string | undefined {
+  const n = (rest.length - 5) / 2
+  if (!Number.isInteger(n) || n < 1) return undefined
+  const p = rest.slice(2, 2 + n)
+  return rest.startsWith('a/') && rest.slice(2 + n, 5 + n) === ' b/' && rest.slice(5 + n) === p ? p : undefined
+}
+
+/** Splits `git diff` output into one changed file per `diff --git` section. */
+export function parseGitDiff(out: string): GitChangedFile[] {
+  const files: GitChangedFile[] = []
+  for (const section of out.split(/^diff --git /m).slice(1)) {
+    const lines = section.split(/\r?\n/)
+    let status: GitChangedFile['status'] = 'modified'
+    let oldPath: string | undefined
+    let newPath: string | undefined
+    let binary = false
+    const hunks: PatchHunk[] = []
+    let i = 1
+    for (; i < lines.length && !lines[i].startsWith('@@'); i++) {
+      const line = lines[i]
+      if (line.startsWith('new file mode')) status = 'added'
+      else if (line.startsWith('deleted file mode')) status = 'deleted'
+      else if (line.startsWith('rename from ')) {
+        status = 'renamed'
+        oldPath = unquote(line.slice(12))
+      } else if (line.startsWith('rename to ')) newPath = unquote(line.slice(10))
+      else if (line.startsWith('Binary files ')) binary = true
+      else if (line.startsWith('--- ') && line !== '--- /dev/null') oldPath ??= unquote(line.slice(4)).replace(/^a\//, '')
+      else if (line.startsWith('+++ ') && line !== '+++ /dev/null') newPath ??= unquote(line.slice(4)).replace(/^b\//, '')
+    }
+    for (; i < lines.length; i++) {
+      const m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(lines[i])
+      if (m) {
+        hunks.push({
+          oldStart: Number(m[1]),
+          oldLines: Number(m[2] ?? 1),
+          newStart: Number(m[3]),
+          newLines: Number(m[4] ?? 1),
+          lines: []
+        })
+      } else if (hunks.length && /^[ +\-\\]/.test(lines[i])) {
+        hunks[hunks.length - 1].lines.push(lines[i])
+      }
+    }
+    const path = (status === 'deleted' ? oldPath : newPath) ?? newPath ?? oldPath ?? headerPath(lines[0])
+    if (!path) continue
+    const diff = diffFromPatch(path, hunks)
+    files.push({
+      path,
+      status,
+      ...(status === 'renamed' && oldPath ? { oldPath } : {}),
+      added: diff.added,
+      removed: diff.removed,
+      ...(binary ? { binary } : {}),
+      diff
+    })
+  }
+  return files
+}
+
+async function untrackedFile(top: string, path: string): Promise<GitChangedFile> {
+  const empty = { file: path, added: 0, removed: 0, lines: [] }
+  try {
+    const abs = join(top, ...path.split('/'))
+    if ((await fs.stat(abs)).size > MAX_UNTRACKED_BYTES) {
+      return { path, status: 'added', added: 0, removed: 0, binary: true, diff: empty }
+    }
+    const buf = await fs.readFile(abs)
+    if (buf.includes(0)) return { path, status: 'added', added: 0, removed: 0, binary: true, diff: empty }
+    const text = buf.toString('utf-8')
+    const diff = text ? diffForWrite(path, text) : empty
+    return { path, status: 'added', added: diff.added, removed: 0, diff }
+  } catch {
+    return { path, status: 'added', added: 0, removed: 0, diff: empty }
+  }
+}
+
+/** Every change in `cwd`, whatever tool made it (see `GitChanges`). */
+export async function gitChanges(cwd: string): Promise<GitChanges> {
+  const top = await run(cwd, ['rev-parse', '--show-toplevel'])
+  if (!top.ok || !top.stdout) return { isRepo: false, files: [] }
+  const root = top.stdout
+  const { base, label } = await changesBase(root)
+  const [tracked, others] = await Promise.all([
+    run(root, ['-c', 'core.quotepath=false', 'diff', '--no-color', '--no-ext-diff', '-M', '-U3', base, '--']),
+    run(root, ['ls-files', '--others', '--exclude-standard', '-z'])
+  ])
+  const files = tracked.ok ? parseGitDiff(tracked.stdout) : []
+  const untracked = others.ok ? others.stdout.split('\0').filter(Boolean).slice(0, MAX_UNTRACKED) : []
+  files.push(...(await Promise.all(untracked.map((p) => untrackedFile(root, p)))))
+  files.sort((a, b) => a.path.localeCompare(b.path))
+  return { isRepo: true, baseLabel: label, files }
 }
 
 export async function listBranches(repoDir: string): Promise<string[]> {
