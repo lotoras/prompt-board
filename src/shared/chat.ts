@@ -80,16 +80,32 @@ export function toPermissionMode(value: unknown): PermissionModeId {
     : DEFAULT_PERMISSION_MODE
 }
 
-/** "Resets in 2h 14m" / "Resets in 3d 4h" / "Resets in 12m"; past or missing → "". */
-export function formatResetIn(resetsAt: number | undefined, now: number): string {
+/** "2h 14m" / "3d 4h" / "12m"; past or missing → "". */
+export function formatCountdown(resetsAt: number | undefined, now: number): string {
   if (!resetsAt || resetsAt <= now) return ''
   const totalMin = Math.max(1, Math.round((resetsAt - now) / 60000))
   const d = Math.floor(totalMin / 1440)
   const h = Math.floor((totalMin % 1440) / 60)
   const m = totalMin % 60
-  if (d > 0) return `Resets in ${d}d ${h}h`
-  if (h > 0) return `Resets in ${h}h ${m}m`
-  return `Resets in ${m}m`
+  if (d > 0) return `${d}d ${h}h`
+  if (h > 0) return `${h}h ${m}m`
+  return `${m}m`
+}
+
+/** "Resets in 2h 14m" / "Resets in 3d 4h" / "Resets in 12m"; past or missing → "". */
+export function formatResetIn(resetsAt: number | undefined, now: number): string {
+  const c = formatCountdown(resetsAt, now)
+  return c ? `Resets in ${c}` : ''
+}
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+/** Local weekday and time of a reset, e.g. "Thu 14:00". */
+export function formatResetDay(resetsAt: number): string {
+  const d = new Date(resetsAt)
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  return `${WEEKDAYS[d.getDay()]} ${hh}:${mm}`
 }
 
 const NL = '\n'

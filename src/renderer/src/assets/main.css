@@ -497,6 +497,9 @@ button.cx-head:hover { background: var(--surface); }
 /* rate meters (sidebar footer) */
 .rate-meters { display: flex; flex-direction: column; gap: 5px; padding: 8px 12px 4px; border-top: 1px solid var(--border); }
 .rate-group { font-size: 11px; color: var(--faint); }
+.rate-item { display: contents; }
+.rate-reset { font-size: 11px; color: var(--faint); margin-top: 2px; }
+.rate-reset b { font-weight: 500; color: var(--muted); }
 .rate-row { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); }
 .rate-lbl { width: 52px; flex: none; }
 .rate-bar { flex: 1; height: 4px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }

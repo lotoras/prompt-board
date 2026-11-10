@@ -7,6 +7,7 @@ vi.mock('../../src/renderer/src/lib/api', () => ({ api: {} }))
 import { RateMeters } from '../../src/renderer/src/features/projects/RateMeters'
 import { useStore } from '../../src/renderer/src/store'
 import type { RateLimits } from '../../src/shared/types'
+import { formatResetDay } from '../../src/shared/chat'
 
 const NOW = 1_800_000_000_000
 
@@ -83,6 +84,41 @@ describe('RateMeters', () => {
     })
     render(<RateMeters />)
     expect(screen.getByTitle('Resets in 2h 14m')).toBeTruthy()
+  })
+
+  it('shows the weekly reset day and countdown once when 7d and 7d Fable share it', () => {
+    const at = NOW + (2 * 1440 + 4 * 60) * 60000
+    seed({
+      available: true,
+      updatedAt: 1,
+      windows: [
+        { id: 'five_hour', pct: 42, resetsAt: NOW + 60 * 60000 },
+        { id: 'seven_day', pct: 10, resetsAt: at },
+        { id: 'seven_day_fable', pct: 7, resetsAt: at + 20_000 }
+      ]
+    })
+    const { container } = render(<RateMeters />)
+    const lines = container.querySelectorAll('.rate-reset')
+    expect(lines).toHaveLength(1)
+    expect(lines[0].textContent).toBe(`Weekly resets ${formatResetDay(at)} · in 2d 4h`)
+    // The line sits right above the first weekly row.
+    expect(lines[0].nextElementSibling?.textContent).toContain('7d')
+  })
+
+  it('shows one labelled line per distinct weekly reset', () => {
+    seed({
+      available: true,
+      updatedAt: 1,
+      windows: [
+        { id: 'seven_day', pct: 10, resetsAt: NOW + 1440 * 60000 },
+        { id: 'seven_day_fable', pct: 7, resetsAt: NOW + 3 * 1440 * 60000 }
+      ]
+    })
+    const { container } = render(<RateMeters />)
+    const lines = [...container.querySelectorAll('.rate-reset')].map((l) => l.textContent)
+    expect(lines).toHaveLength(2)
+    expect(lines[0]).toMatch(/^7d resets .* · in 1d 0h$/)
+    expect(lines[1]).toMatch(/^7d Fable resets .* · in 3d 0h$/)
   })
 
   it('marks rows hot from 70% and crit from 90%', () => {

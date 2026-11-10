@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_PERMISSION_MODE,
   PERMISSION_MODES,
+  formatResetDay,
   formatResetIn,
   nextPermissionMode,
   permissionModeLabel,
@@ -73,6 +74,11 @@ describe('formatResetIn', () => {
 
   it('formats days and hours', () => {
     expect(formatResetIn(NOW + (3 * 1440 + 4 * 60) * MIN, NOW)).toBe('Resets in 3d 4h')
+  })
+
+  it('formats the local weekday and time of the reset', () => {
+    const at = new Date(2026, 10, 12, 9, 5).getTime() // Thu 12 Nov 2026, 09:05 local
+    expect(formatResetDay(at)).toBe('Thu 09:05')
   })
 
   it('returns "" for the past, now, or a missing time', () => {
