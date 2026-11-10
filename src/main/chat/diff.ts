@@ -41,7 +41,8 @@ export function diffFromStrings(file: string, oldText: string, newText: string):
 }
 
 export function diffForWrite(file: string, content: string): DiffBlock {
-  const all = content.split('\n')
+  // The newline that ends the last line does not start another line.
+  const all = content.replace(/\r?\n$/, '').split('\n')
   const lines: DiffLine[] = all
     .slice(0, WRITE_LINE_CAP)
     .map((text, i) => ({ type: 'add', text, newNo: i + 1 }))

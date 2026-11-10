@@ -224,7 +224,8 @@ function applyToolResult(
       state.runningAgents = state.runningAgents.filter((a) => a !== id)
     } else if (DIFF_TOOLS.has(item.name) && isObj(record.toolUseResult)) {
       const patch = record.toolUseResult.structuredPatch
-      if (Array.isArray(patch)) {
+      // A newly created file has an empty patch; its diff from the tool input is the real one.
+      if (Array.isArray(patch) && patch.length > 0) {
         const file =
           item.diff?.file ??
           (typeof record.toolUseResult.filePath === 'string'

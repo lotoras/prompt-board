@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef } from 'react'
-import { Monitor, SquareKanban, Terminal } from 'lucide-react'
+import { FileDiff, Monitor, SquareKanban, Terminal } from 'lucide-react'
 import { statusTone } from '../../../../shared/types'
 import type { ChatItem, ChatMeta } from '../../../../shared/types'
 import { formatRelativeTime, formatTokens } from '../../lib/format'
 import { useStore } from '../../store'
 import { Composer } from './Composer'
 import { WorkspaceBar } from './WorkspaceBar'
+import { changedFiles } from './changedFiles'
 import { groupItems } from './groupItems'
 import type { RenderBlock } from './groupItems'
 import { AgentCard } from './items/AgentCard'
@@ -79,8 +80,11 @@ export function ChatView({ chat }: { chat: ChatMeta }): React.JSX.Element {
   const card = useStore((s) => s.boards.cards.find((c) => c.id === chat.cardId))
   const setEditingCardId = useStore((s) => s.setEditingCardId)
   const openInTui = useStore((s) => s.openInTui)
+  const changesOpen = useStore((s) => s.changesOpen)
+  const setChangesOpen = useStore((s) => s.setChangesOpen)
 
   const blocks = useMemo(() => groupItems(items), [items])
+  const changedCount = useMemo(() => changedFiles(items).length, [items])
   const messagesRef = useRef<HTMLDivElement>(null)
   const stickRef = useRef(true)
 
@@ -138,6 +142,18 @@ export function ChatView({ chat }: { chat: ChatMeta }): React.JSX.Element {
             </span>
           ) : null}
           <span className="head-meta when">{formatRelativeTime(chat.updatedAt)}</span>
+          <button
+            type="button"
+            className={`ghost-btn${changesOpen ? ' on' : ''}`}
+            title="Show the files changed in this chat"
+            aria-label="Changes"
+            aria-pressed={changesOpen}
+            onClick={() => setChangesOpen(!changesOpen)}
+          >
+            <FileDiff className="i sm" strokeWidth={1.8} />
+            <span className="lbl">Changes</span>
+            {changedCount > 0 && <span className="num">{changedCount}</span>}
+          </button>
           {!external && (
             <button
               type="button"

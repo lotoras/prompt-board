@@ -10,6 +10,7 @@ import { KanbanBoard } from './features/kanban/KanbanBoard'
 import { AktuellesList } from './features/kanban/AktuellesList'
 import { CardEditorModal } from './features/kanban/CardEditorModal'
 import { ChatTabs, MenuButton } from './features/chat/ChatTabs'
+import { ChangesPanel } from './features/chat/ChangesPanel'
 import { ChatView } from './features/chat/ChatView'
 import { Toast } from './features/chat/Toast'
 import { TerminalDrawer } from './features/terminal/TerminalDrawer'
@@ -37,7 +38,14 @@ function ProjectView({ projectKey }: { projectKey: string }): React.JSX.Element 
   if (!chat) return <KanbanBoard projectKey={projectKey} />
   // TuiStage fills the view while the chat runs in the terminal.
   if (chat.mode === 'tui') return null
-  return <ChatView key={chat.chatId} chat={chat} />
+  return (
+    <div className="chat-split">
+      <div className="chat-col">
+        <ChatView key={chat.chatId} chat={chat} />
+      </div>
+      <ChangesPanel key={chat.chatId} chat={chat} />
+    </div>
+  )
 }
 
 export function Shell(): React.JSX.Element {

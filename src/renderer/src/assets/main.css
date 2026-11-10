@@ -132,6 +132,23 @@ svg.i.sm { width: 13px; height: 13px; }
 .head-meta { color: var(--faint); font-size: 12px; white-space: nowrap; flex: none; }
 .ghost-btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 7px; color: var(--text-2); font-size: 12px; flex: none; }
 .ghost-btn:hover { background: var(--surface-2); color: var(--text); }
+.ghost-btn.on { background: var(--surface-3); color: var(--text); }
+.chat-split { flex: 1; display: flex; min-height: 0; position: relative; }
+.chat-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.changes { flex: none; width: min(560px, 48%); display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--border); background: var(--bg); }
+.changes-head { display: flex; align-items: center; justify-content: space-between; height: 44px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--border); flex: none; font-size: 13px; font-weight: 600; color: var(--text); }
+.changes-empty { padding: 16px 14px; color: var(--muted); font-size: 13px; }
+.changes-list { flex: none; max-height: 38%; overflow-y: auto; padding: 4px; border-bottom: 1px solid var(--border); }
+.change-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 28px; padding: 0 8px; border-radius: 6px; color: var(--muted); text-align: left; }
+.change-row:hover { background: var(--surface-2); }
+.change-row.on { background: var(--surface-3); }
+.cr-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 12px; }
+.cr-path b { font-weight: 600; color: var(--text); }
+.cr-stat { flex: none; font-size: 11.5px; }
+.changes-diff { flex: 1; min-height: 0; overflow-y: auto; }
+.change-edit { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; border-top: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: 12px; }
+.changes-diff section:first-child .change-edit { border-top: 0; }
+.changes-diff section:first-child > .diff:first-child { border-top: 0; }
 
 .messages { flex: 1; overflow-y: auto; min-height: 0; }
 .stream { max-width: 768px; margin: 0 auto; padding: 28px 24px 18px; display: flex; flex-direction: column; gap: 18px; }
@@ -406,6 +423,7 @@ svg.i.sm { width: 13px; height: 13px; }
   .chat-head { padding: 0 12px; gap: 8px; }
   .head-chip, .head-meta.when { display: none; }
   .ghost-btn .lbl { display: none; }
+  .changes { position: absolute; inset: 0; width: auto; z-index: 30; border-left: 0; }
   .controls .sep { display: none; }
   .seg-wrap .seg-lbl { display: none; }
   .bubble { max-width: 92%; }

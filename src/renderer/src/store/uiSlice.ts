@@ -27,6 +27,8 @@ export interface UiSlice {
   setSideOpen: (open: boolean) => void
   drawerOpen: boolean
   toggleDrawer: (open?: boolean) => void
+  changesOpen: boolean
+  setChangesOpen: (open: boolean) => void
   popover: PopoverKind | null
   setPopover: (popover: PopoverKind | null) => void
   /** The last toast stays in state (hidden) so its text does not vanish mid fade-out. */
@@ -102,6 +104,8 @@ export const createUiSlice: StateCreator<StoreState, [], [], UiSlice> = (set, ge
   setSideOpen: (open) => set({ sideOpen: open }),
   drawerOpen: false,
   toggleDrawer: (open) => set({ drawerOpen: open ?? !get().drawerOpen }),
+  changesOpen: false,
+  setChangesOpen: (changesOpen) => set({ changesOpen }),
   popover: null,
   setPopover: (popover) => set({ popover }),
   toast: null,
