@@ -41,9 +41,24 @@ function fromTools(items: ChatItem[]): PanelFile[] {
   }))
 }
 
-/** The chat folder's git changes; null until known, or when the folder is not a repo. */
+/** The folders of the absolute paths the chat edited, outside its own folder; `\n`-joined so it is a stable effect dependency. */
+export function editedDirs(items: ChatItem[], cwd: string): string {
+  const inside = cwd.replace(/[\\/]+$/, '').toLowerCase()
+  const dirs = new Set<string>()
+  for (const file of changedFiles(items)) {
+    if (!/^([a-zA-Z]:[\\/]|\/)/.test(file.path)) continue
+    const dir = file.path.replace(/[\\/][^\\/]*$/, '')
+    const low = dir.toLowerCase()
+    if (low === inside || low.startsWith(inside + '\\') || low.startsWith(inside + '/')) continue
+    dirs.add(dir)
+  }
+  return [...dirs].sort().join('\n')
+}
+
+/** The git changes of the chat folder and of the repos it edited elsewhere; null until known, or when none is a repo. */
 function useGitChanges(chat: ChatMeta, open: boolean, items: ChatItem[]): GitChanges | null {
   const [changes, setChanges] = useState<GitChanges | null>(null)
+  const dirs = useMemo(() => editedDirs(items, chat.cwd ?? ''), [items, chat.cwd])
   const [focusTick, setFocusTick] = useState(0)
 
   useEffect(() => {
@@ -57,7 +72,7 @@ function useGitChanges(chat: ChatMeta, open: boolean, items: ChatItem[]): GitCha
     let live = true
     const load = (): void => {
       api.git
-        .changes(chat.cwd)
+        .changes(chat.cwd, dirs ? dirs.split('\n') : [])
         .then((res) => live && setChanges(res?.isRepo ? res : null))
         .catch(() => live && setChanges(null))
     }
@@ -68,7 +83,7 @@ function useGitChanges(chat: ChatMeta, open: boolean, items: ChatItem[]): GitCha
       clearTimeout(timer)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `changes` only picks the delay
-  }, [open, chat.cwd, items, focusTick])
+  }, [open, chat.cwd, dirs, items, focusTick])
 
   return changes
 }

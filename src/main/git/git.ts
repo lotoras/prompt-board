@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { promises as fs } from 'fs'
-import { dirname, join, relative } from 'path'
+import { basename, dirname, join, relative } from 'path'
 import { worktreeSlug } from '../../shared/chat'
 import type { GitChangedFile, GitChanges, GitInfo, WorkspacePlan } from '../../shared/types'
 import { diffForWrite, diffFromPatch, type PatchHunk } from '../chat/diff'
@@ -214,6 +214,29 @@ export async function gitChanges(cwd: string): Promise<GitChanges> {
   files.push(...(await Promise.all(untracked.map((p) => untrackedFile(root, p)))))
   files.sort((a, b) => a.path.localeCompare(b.path))
   return { isRepo: true, baseLabel: label, files }
+}
+
+/**
+ * The changes of every repo among `dirs` (the chat folder first, then the folders of files the
+ * chat edited elsewhere). One repo: exactly `gitChanges`. Several: one list, each path prefixed
+ * with its repo's folder name.
+ */
+export async function gitChangesAll(dirs: string[]): Promise<GitChanges> {
+  const roots: string[] = []
+  for (const dir of dirs) {
+    const top = dir ? await run(dir, ['rev-parse', '--show-toplevel']) : null
+    if (top?.ok && top.stdout && !roots.includes(top.stdout)) roots.push(top.stdout)
+  }
+  if (roots.length === 0) return { isRepo: false, files: [] }
+  const all = await Promise.all(roots.map((root) => gitChanges(root)))
+  if (all.length === 1) return all[0]
+  const files = all.flatMap((changes, i) =>
+    changes.files.map((f) => {
+      const path = `${basename(roots[i])}/${f.path}`
+      return { ...f, path, diff: { ...f.diff, file: path } }
+    })
+  )
+  return { isRepo: true, baseLabel: all[0].baseLabel, files }
 }
 
 export async function listBranches(repoDir: string): Promise<string[]> {

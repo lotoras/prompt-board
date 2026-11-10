@@ -11,7 +11,7 @@ vi.mock('../../src/renderer/src/lib/api', () => ({
   api: { chat, git: { branches: vi.fn().mockResolvedValue(['main']), changes } }
 }))
 
-import { ChangesPanel } from '../../src/renderer/src/features/chat/ChangesPanel'
+import { ChangesPanel, editedDirs } from '../../src/renderer/src/features/chat/ChangesPanel'
 import { ChatView } from '../../src/renderer/src/features/chat/ChatView'
 import { useStore } from '../../src/renderer/src/store'
 import type { ChatItem } from '../../src/shared/types'
@@ -130,7 +130,7 @@ describe('ChangesPanel git source', () => {
     seed([edit('e1', 'tool/only.ts', 'tool-line')])
     render(<ChangesPanel chat={c} />)
     expect(await screen.findByText('git-line-a')).toBeTruthy()
-    expect(changes).toHaveBeenCalledWith(c.cwd)
+    expect(changes).toHaveBeenCalledWith(c.cwd, [])
     const rows = screen.getAllByRole('option')
     expect(rows.map((r) => r.getAttribute('title'))).toEqual(['src/a.ts', 'src/fresh.ts'])
     expect(rows[0].textContent).toContain('+2')
@@ -176,5 +176,17 @@ describe('ChangesPanel git source', () => {
     })
     expect(screen.getByText('tool-line')).toBeTruthy()
     expect(screen.getByText('1 changed file')).toBeTruthy()
+  })
+})
+
+describe('editedDirs', () => {
+  it('lists the folders of absolute paths outside the chat folder, once each', () => {
+    const items = [
+      edit('e1', String.raw`C:\www\beam\lib\a.ex`, 'a'),
+      edit('e2', String.raw`C:\www\beam\lib\b.ex`, 'b'),
+      edit('e3', String.raw`C:\www\tasks\notes.md`, 'n'),
+      edit('e4', 'src/rel.ts', 'r')
+    ]
+    expect(editedDirs(items, String.raw`C:\www\tasks`)).toBe(String.raw`C:\www\beam\lib`)
   })
 })

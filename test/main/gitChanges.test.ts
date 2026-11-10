@@ -4,7 +4,7 @@ import { promises as fs } from 'fs'
 import os from 'os'
 import { join } from 'path'
 import { promisify } from 'util'
-import { clearGitCache, gitChanges } from '../../src/main/git/git'
+import { clearGitCache, gitChanges, gitChangesAll } from '../../src/main/git/git'
 
 const run = promisify(execFile)
 
@@ -123,5 +123,33 @@ describe('main/git gitChanges', { timeout: 30000 }, () => {
     const plain = join(root, 'plain')
     await fs.mkdir(plain)
     expect(await gitChanges(plain)).toEqual({ isRepo: false, files: [] })
+  })
+
+  it('gitChangesAll: one repo gives the same result as gitChanges', async () => {
+    await fs.writeFile(join(repo, 'a.txt'), 'one\nTWO\nthree\n')
+    expect(await gitChangesAll([repo, join(repo, 'src')])).toEqual(await gitChanges(repo))
+  })
+
+  it('gitChangesAll: a second repo is added, paths prefixed with the repo folder', async () => {
+    const other = join(root, 'other')
+    await fs.mkdir(join(other, 'lib'), { recursive: true })
+    await git(other, 'init', '-b', 'main')
+    await fs.writeFile(join(other, 'lib', 'x.ex'), 'a\n')
+    await git(other, 'add', '.')
+    await git(other, 'commit', '-m', 'init')
+    await fs.writeFile(join(other, 'lib', 'x.ex'), 'b\n')
+    await fs.writeFile(join(repo, 'a.txt'), 'one\nTWO\nthree\n')
+    const res = await gitChangesAll([repo, join(other, 'lib'), join(root, 'missing')])
+    expect(res.isRepo).toBe(true)
+    expect(res.files.map((f) => f.path)).toEqual(['repo/a.txt', 'other/lib/x.ex'])
+    expect(res.files[1].diff.file).toBe('other/lib/x.ex')
+    expect(res.files[1].diff.lines.length).toBeGreaterThan(0)
+  })
+
+  it('gitChangesAll: a chat folder that is not a repo still shows the edited repo', async () => {
+    const plain = join(root, 'plain')
+    await fs.mkdir(plain)
+    await fs.writeFile(join(repo, 'a.txt'), 'one\nTWO\nthree\n')
+    expect(await gitChangesAll([plain, repo])).toEqual(await gitChanges(repo))
   })
 })

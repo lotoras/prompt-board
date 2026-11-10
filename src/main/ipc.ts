@@ -17,7 +17,7 @@ import type {
 import { listAccounts } from './accounts'
 import { describe, pick, saveImage } from './chat/attachments'
 import { chatService } from './chat/service'
-import { gitChanges, gitInfo, listBranches } from './git/git'
+import { gitChangesAll, gitInfo, listBranches } from './git/git'
 import { mutateKanban, getBoards } from './kanban/store'
 import { createProject, deleteProject, listProjects, updateProject } from './projects/store'
 import { attachPty, killPty, resizePty, spawnPty, writePty } from './pty/manager'
@@ -220,7 +220,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   )
 
   ipcMain.handle(IPC_CHANNELS.git.info, (_event, cwd: string) => gitInfo(cwd))
-  ipcMain.handle(IPC_CHANNELS.git.changes, (_event, cwd: string) => gitChanges(cwd))
+  ipcMain.handle(IPC_CHANNELS.git.changes, (_event, cwd: string, dirs?: string[]) =>
+    gitChangesAll([cwd, ...(Array.isArray(dirs) ? dirs : [])])
+  )
   ipcMain.handle(IPC_CHANNELS.git.branches, async (_event, projectKey: string) => {
     const project = (await listProjects()).find((p) => p.projectKey === projectKey)
     return project?.basePath ? listBranches(project.basePath) : []

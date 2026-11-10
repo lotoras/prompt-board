@@ -802,7 +802,8 @@ export interface Api {
     /** Local branches of the project's repo, current branch first. */
     branches(projectKey: string): Promise<string[]>
     /** Every change in `cwd` (see `GitChanges`). */
-    changes(cwd: string): Promise<GitChanges>
+    /** `dirs`: more folders whose repos to include (the folders of files edited outside `cwd`). */
+    changes(cwd: string, dirs?: string[]): Promise<GitChanges>
   }
   rate: {
     get(): Promise<RateLimits>
