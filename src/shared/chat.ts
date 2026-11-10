@@ -15,7 +15,7 @@ export const EFFORT_LEVELS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', '
 
 export const MODEL_OPTIONS: ModelOption[] = [
   { id: 'opus', name: 'Opus 5.5', description: 'Most capable for hard, long work' },
-  { id: 'fable', name: 'Fable 5.1', description: 'Deep reasoning and design passes' },
+  { id: 'fable', name: 'Fable 5.2', description: 'Deep reasoning and design passes' },
   { id: 'sonnet', name: 'Sonnet 5.5', description: 'Fast and strong for everyday coding' },
   { id: 'haiku', name: 'Haiku 5.5', description: 'Quickest, for small edits and sweeps' }
 ]

@@ -6,6 +6,7 @@ const LABELS: Record<RateLimitWindowId, string> = {
   five_hour: '5h',
   seven_day: '7d',
   seven_day_opus: '7d Opus',
+  seven_day_fable: '7d Fable',
   seven_day_sonnet: '7d Sonnet'
 }
 

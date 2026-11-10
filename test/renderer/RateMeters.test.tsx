@@ -69,6 +69,12 @@ describe('RateMeters', () => {
     expect(screen.getByRole('meter', { name: '7d Sonnet usage' })).toBeTruthy()
   })
 
+  it('labels the Fable window', () => {
+    seed({ available: true, updatedAt: 1, windows: [{ id: 'seven_day_fable', pct: 7 }] })
+    render(<RateMeters />)
+    expect(screen.getByRole('meter', { name: '7d Fable usage' }).getAttribute('aria-valuenow')).toBe('7')
+  })
+
   it('titles the row with the reset countdown', () => {
     seed({
       available: true,

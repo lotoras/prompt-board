@@ -549,7 +549,13 @@ export interface SlashCommandInfo {
   builtin?: boolean
 }
 
-export type RateLimitWindowId = 'five_hour' | 'seven_day' | 'seven_day_opus' | 'seven_day_sonnet'
+/** `seven_day_fable` comes from the usage response's `rate_limits.model_scoped` row "Fable". */
+export type RateLimitWindowId =
+  | 'five_hour'
+  | 'seven_day'
+  | 'seven_day_opus'
+  | 'seven_day_fable'
+  | 'seven_day_sonnet'
 
 export interface RateLimitWindow {
   id: RateLimitWindowId

@@ -1,6 +1,13 @@
 import type { RateLimits, RateLimitWindow, RateLimitWindowId } from '../../shared/types'
 
-const ORDER: RateLimitWindowId[] = ['five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet']
+const ORDER: RateLimitWindowId[] = [
+  'five_hour',
+  'seven_day',
+  'seven_day_opus',
+  'seven_day_fable',
+  'seven_day_sonnet'
+]
+const FABLE: RateLimitWindowId = 'seven_day_fable'
 const STATUSES = ['allowed', 'allowed_warning', 'rejected']
 
 type Obj = Record<string, unknown>
@@ -67,8 +74,18 @@ export function createRateLimitTracker(now: () => number): RateLimitTracker {
       const limits = isObj(resp) && resp.rate_limits_available !== false ? resp.rate_limits : null
       const nextWindows = new Map<RateLimitWindowId, RateLimitWindow>()
       if (isObj(limits)) {
+        // Per-model weekly rows (e.g. "Fable"); absent = unknown this time, so keep the last value.
+        const scoped = limits.model_scoped
+        const fableRow = Array.isArray(scoped)
+          ? scoped.find((r) => isObj(r) && String(r.display_name).toLowerCase() === 'fable')
+          : undefined
         for (const id of ORDER) {
-          const w = limits[id]
+          if (id === FABLE && !Array.isArray(scoped)) {
+            const kept = windows.get(FABLE)
+            if (kept) nextWindows.set(FABLE, kept)
+            continue
+          }
+          const w = id === FABLE ? fableRow : limits[id]
           if (!isObj(w) || typeof w.utilization !== 'number') continue
           const next: RateLimitWindow = { id, pct: Math.round(w.utilization) }
           const resets = typeof w.resets_at === 'string' ? Date.parse(w.resets_at) : NaN

@@ -150,6 +150,53 @@ describe('chat/rateLimits applyUsage', () => {
     tick(5000)
     expect(tracker.applyUsage(JSON.parse(JSON.stringify(resp)))).toBe(false)
   })
+
+  const withFable = (fable: unknown) => ({
+    rate_limits_available: true,
+    rate_limits: {
+      five_hour: { utilization: 10, resets_at: null },
+      seven_day_opus: { utilization: 20, resets_at: null },
+      seven_day_sonnet: { utilization: 30, resets_at: null },
+      model_scoped: fable
+    }
+  })
+
+  it('reads the Fable weekly window from model_scoped, placed after Opus', () => {
+    const { tracker } = make()
+    tracker.applyUsage(
+      withFable([
+        { display_name: 'Fable', utilization: 44.6, resets_at: '2026-11-12T10:00:00.000Z' }
+      ])
+    )
+    const limits = tracker.get()
+    expect(limits.windows.map((w) => [w.id, w.pct])).toEqual([
+      ['five_hour', 10],
+      ['seven_day_opus', 20],
+      ['seven_day_fable', 45],
+      ['seven_day_sonnet', 30]
+    ])
+    expect(limits.windows[2].resetsAt).toBe(Date.parse('2026-11-12T10:00:00.000Z'))
+  })
+
+  it('ignores other model_scoped rows and null utilization', () => {
+    const { tracker } = make()
+    tracker.applyUsage(
+      withFable([
+        { display_name: 'Mythos', utilization: 5, resets_at: null },
+        { display_name: 'fable', utilization: null, resets_at: null }
+      ])
+    )
+    expect(tracker.get().windows.map((w) => w.id)).not.toContain('seven_day_fable')
+  })
+
+  it('keeps the last Fable window when model_scoped is absent, drops it on an empty list', () => {
+    const { tracker } = make()
+    tracker.applyUsage(withFable([{ display_name: 'Fable', utilization: 12, resets_at: null }]))
+    tracker.applyUsage(withFable(undefined))
+    expect(tracker.get().windows.find((w) => w.id === 'seven_day_fable')?.pct).toBe(12)
+    tracker.applyUsage(withFable([]))
+    expect(tracker.get().windows.map((w) => w.id)).not.toContain('seven_day_fable')
+  })
 })
 
 describe('chat/rateLimits window order', () => {
