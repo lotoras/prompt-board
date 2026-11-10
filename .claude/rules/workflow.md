@@ -22,15 +22,20 @@ tools on demand. Spawn agents only for a context reason (step 4), never to split
    test type and ask. Planned multi-file work → `testing-coder` writes the red tests from the plan
    first (black-box; Codex writes them only when the user says "use codex"). Small changes → write
    the test yourself.
-4. **Build** — in the main loop. Spawn only for:
-   - **bulky reads** whose raw output you don't need (unknown-scope sweeps, big logs, git
-     archaeology) → Haiku `Explore`, ≤300-word return; known files you read yourself;
-   - **independent parallel work** that benefits from fresh contexts (multi-concern review,
-     research sweep, many-file mechanical edits, independent layers) → a Workflow; every `agent()`
-     sets `agentType` or `model` — `electron-main-coder` / `react-coder` / `testing-coder` with
-     `model: "sonnet"` for well-specified code, `model: "haiku"` for verbatim edits; Opus for
-     judgment;
-   - **black-box verification** → `testing-coder` red tests or a Codex review.
+4. **Build** — in the main loop. Before any spawn ask: does the agent need this conversation's
+   context?
+   - **yes** → do it yourself, or use a fork (same model, shared cache) for a side task or a second
+     approach;
+   - **no, and you only need to know where something is** (unknown-scope sweeps, big logs, git
+     archaeology) → Haiku `Explore` that returns paths and line ranges, not conclusions, ≤300 words;
+     what you must understand, and known files, you read yourself, once;
+   - **no, and the parts are independent** (multi-concern review, research sweep, many-file
+     mechanical edits, independent layers) → a Workflow of fresh workers, only for files you have
+     not already read — `electron-main-coder` / `react-coder` / `testing-coder` with
+     `model: "sonnet"` for well-specified code, `model: "haiku"` for verbatim edits, and no model
+     for review, design or debugging (it then runs on the session model at the session's effort);
+   - **it must not see how the work was done** → black-box verification: `testing-coder` red tests
+     or a Codex review.
 
    The architects (`electron-main-architect`, `react-architect`, `testing-architect`) are
    on-demand: use one only when the user asks for a separate design pass.

@@ -1,8 +1,8 @@
 ---
 name: testing-coder
-description: "Use this agent to write Vitest tests in prompt-board as black-box verification — the red tests from a plan file before implementation, for planned multi-file work — and for test infrastructure (fixtures, factories, helpers): Node-env unit tests for main-process logic and jsdom component tests (React Testing Library) for renderer UI. Enforces deterministic, hermetic tests that use fixtures instead of the live ~/.claude. Dispatch with model \"sonnet\" (\"haiku\" for verbatim edits); frontmatter default Opus."
+description: "Use this agent to write Vitest tests in prompt-board as black-box verification — the red tests from a plan file before implementation, for planned multi-file work — and for test infrastructure (fixtures, factories, helpers): Node-env unit tests for main-process logic and jsdom component tests (React Testing Library) for renderer UI. Enforces deterministic, hermetic tests that use fixtures instead of the live ~/.claude. Dispatch with model \"sonnet\" (\"haiku\" for verbatim edits); default: the session model."
 tools: Bash, Glob, Grep, Read, Edit, Write
-model: opus
+model: inherit
 color: green
 ---
 

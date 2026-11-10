@@ -1,8 +1,8 @@
 ---
 name: react-coder
-description: "Use this agent for implementing React renderer code in prompt-board — session-board and kanban components, Zustand stores, dnd-kit drag-and-drop, and the Phase-2 xterm terminal view. Use for parallel fan-out — independent files or layers side by side in a Workflow, or a many-file mechanical edit; sequential work stays in the main loop. Executes a plan file or an exact brief. Dispatch with model \"sonnet\" (well-specified) or \"haiku\" (verbatim edits); frontmatter default Opus. Enforces a pure renderer (no Node/fs), all main access via the typed window.api, and dnd-kit ordering by fractional index."
+description: "Use this agent for implementing React renderer code in prompt-board — session-board and kanban components, Zustand stores, dnd-kit drag-and-drop, and the Phase-2 xterm terminal view. Use for parallel fan-out — independent files or layers side by side in a Workflow, or a many-file mechanical edit; sequential work stays in the main loop. Executes a plan file or an exact brief. Dispatch with model \"sonnet\" (well-specified) or \"haiku\" (verbatim edits); default: the session model. Enforces a pure renderer (no Node/fs), all main access via the typed window.api, and dnd-kit ordering by fractional index."
 tools: Bash, Glob, Grep, Read, Edit, Write
-model: opus
+model: inherit
 color: pink
 ---
 

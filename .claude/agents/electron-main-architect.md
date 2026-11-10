@@ -1,8 +1,8 @@
 ---
 name: electron-main-architect
-description: "On-demand Electron main-process design pass for prompt-board — use only when the user asks for a separate plan or design review (the main loop plans by default; \"use fable\" runs this agent with model \"fable\"). Scopes where logic lives (the IPC contract, session-registry/transcript readers, chokidar watchers, PID-liveness, the kanban store, the Phase-2 node-pty manager), weighs trade-offs and writes a step-by-step plan to .claude/plans/. Reads and reasons — never writes code."
+description: "On-demand Electron main-process design pass for prompt-board — use only when the user asks for a separate plan or design review (the main loop plans by default). Scopes where logic lives (the IPC contract, session-registry/transcript readers, chokidar watchers, PID-liveness, the kanban store, the Phase-2 node-pty manager), weighs trade-offs and writes a step-by-step plan to .claude/plans/. Reads and reasons — never writes code."
 tools: Bash, Read, Glob, Grep, Write, Agent(Explore, general-purpose)
-model: opus
+model: inherit
 color: blue
 ---
 

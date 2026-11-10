@@ -2,7 +2,7 @@
 name: testing-architect
 description: "On-demand Vitest test planning for prompt-board — use only when the user asks for a separate test plan (by default the main loop's plan carries the cases). Decides what to test, picking the right test type (Node-env unit tests for main-process logic vs jsdom component tests via React Testing Library), which fixtures/mocks are needed, and which existing test patterns to follow. Produces a plan that `testing-coder` executes. Reads and reasons — returns a plan, never writes tests."
 tools: Bash, Read, Glob, Grep, Write, Agent(Explore, general-purpose)
-model: opus
+model: inherit
 color: orange
 ---
 

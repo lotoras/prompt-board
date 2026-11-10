@@ -1,8 +1,8 @@
 ---
 name: react-architect
-description: "On-demand React renderer design pass for prompt-board — use only when the user asks for a separate plan or design review (the main loop plans by default; \"use fable\" runs this agent with model \"fable\"). Scopes where logic lives (the project-grouped session board, the manual kanban with dnd-kit, Zustand state, the Phase-2 xterm terminal view), weighs trade-offs and writes a step-by-step plan to .claude/plans/. Reads and reasons — never writes code."
+description: "On-demand React renderer design pass for prompt-board — use only when the user asks for a separate plan or design review (the main loop plans by default). Scopes where logic lives (the project-grouped session board, the manual kanban with dnd-kit, Zustand state, the Phase-2 xterm terminal view), weighs trade-offs and writes a step-by-step plan to .claude/plans/. Reads and reasons — never writes code."
 tools: Bash, Read, Glob, Grep, Write, Agent(Explore, general-purpose)
-model: opus
+model: inherit
 color: purple
 ---
 

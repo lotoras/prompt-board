@@ -93,9 +93,11 @@ Reorder writes a fractional-index `order` (no mass renumber). Persist to
 
 **For any change request, follow `.claude/rules/workflow.md`.** Work in one main loop — read, plan
 (`.claude/plans/<slug>.md` for multi-step work), edit, run the checks and verify yourself. Spawn
-only for a context reason: bulky reads (Haiku `Explore`), independent parallel work (a Workflow;
-every `agent()` sets `agentType` or `model`), or black-box verification (`testing-coder` red tests
-from the plan for planned multi-file work; Codex only when the user says "use codex").
+only for a context reason: a fork when the work needs this conversation's context, Haiku `Explore`
+to locate things in an unknown scope (it returns paths, not conclusions), a Workflow of fresh
+workers for independent parallel parts (`haiku` for verbatim edits, `sonnet` for well-specified
+coding, the session model for judgment), or black-box verification (`testing-coder` red tests from
+the plan for planned multi-file work; Codex only when the user says "use codex").
 
 Agents in `.claude/agents/`:
 - `electron-main-architect` / `electron-main-coder` — main process, IPC, filesystem/OS, kanban store, preload bridge, pty (Phase 2).
