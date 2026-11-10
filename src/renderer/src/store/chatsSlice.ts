@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand'
-import { suggestBranchName } from '../../../shared/chat'
+import { suggestBranchName, toChatToggles } from '../../../shared/chat'
 import { statusTone } from '../../../shared/types'
 import { withoutKey } from '../lib/objects'
 import type {
@@ -85,7 +85,10 @@ const TOGGLES_KEY = 'prompt-board:toggles'
 function loadToggleDefaults(): Record<string, ChatToggles> {
   try {
     const raw = localStorage.getItem(TOGGLES_KEY)
-    if (raw) return JSON.parse(raw) as Record<string, ChatToggles>
+    if (raw) {
+      const stored = JSON.parse(raw) as Record<string, unknown>
+      return Object.fromEntries(Object.entries(stored).map(([k, v]) => [k, toChatToggles(v)]))
+    }
   } catch {
     // ignore malformed storage
   }
@@ -191,7 +194,9 @@ export const createChatsSlice: StateCreator<StoreState, [], [], ChatsSlice> = (s
       if (
         !chat.started &&
         remembered &&
-        (remembered.codex !== chat.toggles.codex || remembered.ultra !== chat.toggles.ultra)
+        (remembered.codex !== chat.toggles.codex ||
+          remembered.fanOut !== chat.toggles.fanOut ||
+          remembered.think !== chat.toggles.think)
       ) {
         get().updateChat(chat.chatId, { toggles: remembered })
       }

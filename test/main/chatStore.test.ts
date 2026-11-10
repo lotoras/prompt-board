@@ -111,7 +111,7 @@ describe('chat/store persistence', () => {
           cwd: 'C:\\work\\p1',
           model: 'sonnet',
           effort: 'low',
-          toggles: { codex: 'tests', ultra: true },
+          toggles: { codex: 'tests', fanOut: true, think: true },
           permissionMode: 'acceptEdits',
           started: false,
           createdAt: 1,
@@ -133,7 +133,7 @@ describe('chat/store persistence', () => {
       cwd: 'C:\\work\\p1',
       model: 'opus',
       effort: 'high',
-      toggles: { codex: 'off', ultra: false },
+      toggles: { codex: 'off', fanOut: false, think: false },
       started: true,
       createdAt: 1,
       updatedAt: 1
@@ -155,6 +155,39 @@ describe('chat/store persistence', () => {
       ['missing', 'bypassPermissions'],
       ['bad', 'bypassPermissions'],
       ['plan', 'plan']
+    ])
+  })
+
+  it('turns an old `ultra` toggle into Fan-out and Think harder on load', async () => {
+    const base = {
+      projectKey: 'p1',
+      sessionId: 's',
+      title: 'T',
+      cwd: 'C:\\work\\p1',
+      model: 'opus',
+      effort: 'high',
+      permissionMode: 'plan',
+      started: true,
+      createdAt: 1,
+      updatedAt: 1
+    }
+    await fs.writeFile(
+      join(tmpDir, 'chats.json'),
+      JSON.stringify({
+        chats: [
+          { ...base, chatId: 'old-on', toggles: { codex: 'tests', ultra: true } },
+          { ...base, chatId: 'old-off', toggles: { codex: 'off', ultra: false } },
+          { ...base, chatId: 'none' }
+        ],
+        activeByProject: {}
+      })
+    )
+    const { loadChatsState } = await load()
+    const { chats } = await loadChatsState()
+    expect(chats.map((c) => [c.chatId, c.toggles])).toEqual([
+      ['old-on', { codex: 'tests', fanOut: true, think: true }],
+      ['old-off', { codex: 'off', fanOut: false, think: false }],
+      ['none', { codex: 'off', fanOut: false, think: false }]
     ])
   })
 

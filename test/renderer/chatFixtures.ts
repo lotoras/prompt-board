@@ -10,7 +10,7 @@ export function makeChat(overrides: Partial<ChatMeta> = {}): ChatMeta {
     branch: 'main',
     model: 'opus',
     effort: 'high',
-    toggles: { codex: 'off', ultra: false },
+    toggles: { codex: 'off', fanOut: false, think: false },
     permissionMode: 'bypassPermissions',
     account: 1,
     status: 'idle',
@@ -30,7 +30,7 @@ export const user = (id: string, text = id): ChatItem => ({
   kind: 'user',
   id,
   text,
-  directives: { codex: 'off', ultra: false },
+  directives: { codex: 'off', think: false },
   attachments: []
 })
 export const assistant = (id: string): ChatItem => ({ kind: 'assistant', id, markdown: id })

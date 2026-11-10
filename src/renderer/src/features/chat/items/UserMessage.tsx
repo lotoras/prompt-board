@@ -15,7 +15,7 @@ export function UserMessage({ chatId, item }: { chatId: string; item: UserItem }
   const [revertFiles, setRevertFiles] = useState(false)
   const [sent, setSent] = useState(false)
 
-  const hasChips = directives.ultra || directives.codex !== 'off' || attachments.length > 0
+  const hasChips = directives.think || directives.codex !== 'off' || attachments.length > 0
   const canEdit =
     !!chat && chat.mode !== 'external' && chat.status !== 'busy' && item.parentUuid !== undefined
 
@@ -105,10 +105,10 @@ export function UserMessage({ chatId, item }: { chatId: string; item: UserItem }
               Codex tests and review
             </span>
           )}
-          {directives.ultra && (
+          {directives.think && (
             <span className="d-chip">
               <Sparkles className="i sm" strokeWidth={1.8} />
-              Ultra
+              Think harder
             </span>
           )}
         </div>

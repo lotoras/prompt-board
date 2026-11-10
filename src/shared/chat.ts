@@ -14,15 +14,19 @@ import type {
 export const EFFORT_LEVELS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 export const MODEL_OPTIONS: ModelOption[] = [
-  { id: 'opus', name: 'Opus 5.5', description: 'Most capable for hard, long work' },
-  { id: 'fable', name: 'Fable 5.2', description: 'Deep reasoning and design passes' },
-  { id: 'sonnet', name: 'Sonnet 5.5', description: 'Fast and strong for everyday coding' },
+  { id: 'opus', name: 'Opus 5.5', description: 'Default for everyday coding and complex work' },
+  {
+    id: 'fable',
+    name: 'Fable 5.2',
+    description: 'Most capable, for the hardest and longest tasks (2x Opus cost)'
+  },
+  { id: 'sonnet', name: 'Sonnet 5.5', description: 'Fast, for quick and simple work' },
   { id: 'haiku', name: 'Haiku 5.5', description: 'Quickest, for small edits and sweeps' }
 ]
 
 /** Exact directive lines composePrompt appends; parseDirectives strips them again. */
 export const DIRECTIVE_LINES = {
-  ultra: 'ultrathink',
+  think: 'ultrathink',
   codexTests: 'use codex',
   codexFull:
     'use codex, and after the tests pass have Codex review the change and address its findings'
@@ -31,7 +35,22 @@ export const DIRECTIVE_LINES = {
 /** Header line of the attached-files block composePrompt appends for non-image files. */
 export const ATTACHED_FILES_HEADER = 'Attached files:'
 
-export const DEFAULT_TOGGLES: ChatToggles = { codex: 'off', ultra: false }
+export const DEFAULT_TOGGLES: ChatToggles = { codex: 'off', fanOut: false, think: false }
+
+/**
+ * Normalise stored toggles (chats.json, localStorage). An old `ultra: true` — one switch that
+ * did both — becomes Fan-out + Think harder; missing or invalid values are off.
+ */
+export function toChatToggles(value: unknown): ChatToggles {
+  if (typeof value !== 'object' || value === null) return { ...DEFAULT_TOGGLES }
+  const v = value as Record<string, unknown>
+  const ultra = v.ultra === true
+  return {
+    codex: v.codex === 'tests' || v.codex === 'full' ? v.codex : 'off',
+    fanOut: typeof v.fanOut === 'boolean' ? v.fanOut : ultra,
+    think: typeof v.think === 'boolean' ? v.think : ultra
+  }
+}
 
 /** Composer mode options, in Shift+Tab cycle order (as in the Claude Code TUI). */
 export const PERMISSION_MODES: { id: PermissionModeId; label: string; description: string }[] = [
@@ -92,7 +111,8 @@ function slug(text: string, max = 40): string {
  * Build the prompt text actually sent to Claude:
  *   <text trimmed>
  *   [blank line, `Attached files:`, one `- <path>` line per NON-image attachment]
- *   [blank line, directive lines: ultra first, then the codex line]
+ *   [blank line, directive lines: `ultrathink` (Think harder) first, then the codex line]
+ * Fan-out adds no text: main sends it as the `ultracode` session flag.
  * Image attachments are sent as image blocks by main, so they are not listed.
  * With no files and no directives the result is the trimmed text.
  */
@@ -110,7 +130,7 @@ export function composePrompt(
   const files = attachments.filter((a) => a.kind !== 'image').map((a) => a.path)
   if (files.length) parts.push([ATTACHED_FILES_HEADER, ...files.map((f) => `- ${f}`)].join(NL))
   const directives: string[] = []
-  if (toggles.ultra) directives.push(DIRECTIVE_LINES.ultra)
+  if (toggles.think) directives.push(DIRECTIVE_LINES.think)
   if (toggles.codex === 'tests') directives.push(DIRECTIVE_LINES.codexTests)
   else if (toggles.codex === 'full') directives.push(DIRECTIVE_LINES.codexFull)
   if (directives.length) parts.push(directives.join(NL))
@@ -128,7 +148,7 @@ function lastBlock(text: string): { head: string; tail: string } {
 /**
  * Inverse of composePrompt: strips a trailing directive block and a trailing
  * attached-files block and reports them. Text that was not built by
- * composePrompt comes back unchanged with `{ codex: 'off', ultra: false }` and
+ * composePrompt comes back unchanged with `{ codex: 'off', think: false }` and
  * no files.
  */
 export function parseDirectives(prompt: string): {
@@ -137,13 +157,13 @@ export function parseDirectives(prompt: string): {
   files: string[]
 } {
   let rest = prompt.replace(/\r\n/g, NL)
-  const directives: ParsedDirectives = { codex: 'off', ultra: false }
+  const directives: ParsedDirectives = { codex: 'off', think: false }
   let files: string[] = []
 
   const d = lastBlock(rest)
   const dLines = d.tail.split(NL)
   if (d.tail && dLines.every((l) => DIRECTIVE_SET.has(l))) {
-    directives.ultra = dLines.includes(DIRECTIVE_LINES.ultra)
+    directives.think = dLines.includes(DIRECTIVE_LINES.think)
     directives.codex = dLines.includes(DIRECTIVE_LINES.codexFull)
       ? 'full'
       : dLines.includes(DIRECTIVE_LINES.codexTests)

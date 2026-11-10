@@ -106,7 +106,7 @@ function makeChat(overrides: Partial<ChatMeta> = {}): ChatMeta {
   }
 }
 
-const OFF: ChatToggles = { codex: 'off', ultra: false }
+const OFF: ChatToggles = { codex: 'off', fanOut: false, think: false }
 
 function input(text: string, toggles: ChatToggles = OFF, attachments: any[] = []) {
   return { text, attachments, toggles }
@@ -239,7 +239,10 @@ describe('chat/runner', () => {
   // -------------------------------------------------------------------------
   describe('pushed user messages', () => {
     it('pushes a string user message with the composed prompt', async () => {
-      await runner.send(makeChat(), input('  fix it  ', { codex: 'tests', ultra: true }))
+      await runner.send(
+        makeChat(),
+        input('  fix it  ', { codex: 'tests', fanOut: true, think: true })
+      )
       await vi.waitFor(() => expect(queries[0].pushed).toHaveLength(1))
       expect(queries[0].pushed[0]).toEqual({
         type: 'user',
@@ -297,18 +300,18 @@ describe('chat/runner', () => {
   })
 
   // -------------------------------------------------------------------------
-  describe('ultra', () => {
-    it('applies flag settings only when the ultra toggle changes', async () => {
+  describe('fan-out', () => {
+    it('applies flag settings only when the Fan-out toggle changes', async () => {
       const chat = makeChat()
       await runner.send(chat, input('a', OFF))
       const q = queries[0]
       expect(q.applyFlagSettings).not.toHaveBeenCalled()
 
-      await runner.send(chat, input('b', { codex: 'off', ultra: true }))
+      await runner.send(chat, input('b', { codex: 'off', fanOut: true, think: false }))
       expect(q.applyFlagSettings).toHaveBeenCalledTimes(1)
       expect(q.applyFlagSettings).toHaveBeenLastCalledWith({ ultracode: true, effortLevel: 'high' })
 
-      await runner.send(chat, input('c', { codex: 'off', ultra: true }))
+      await runner.send(chat, input('c', { codex: 'off', fanOut: true, think: false }))
       expect(q.applyFlagSettings).toHaveBeenCalledTimes(1)
 
       await runner.send(chat, input('d', OFF))
@@ -316,12 +319,28 @@ describe('chat/runner', () => {
       expect(q.applyFlagSettings).toHaveBeenLastCalledWith({ ultracode: false, effortLevel: 'high' })
     })
 
-    it('applies ultra on the very first send when it starts enabled', async () => {
-      await runner.send(makeChat(), input('a', { codex: 'off', ultra: true }))
+    it('applies Fan-out on the very first send when it starts enabled', async () => {
+      await runner.send(makeChat(), input('a', { codex: 'off', fanOut: true, think: false }))
       expect(queries[0].applyFlagSettings).toHaveBeenCalledWith({
         ultracode: true,
         effortLevel: 'high'
       })
+    })
+
+    it('Fan-out adds no text to the prompt', async () => {
+      await runner.send(makeChat(), input('fix it', { codex: 'off', fanOut: true, think: false }))
+      await vi.waitFor(() => expect(queries[0].pushed).toHaveLength(1))
+      expect(queries[0].pushed[0].message).toEqual({ role: 'user', content: 'fix it' })
+    })
+
+    it('Think harder appends ultrathink and sets no flag', async () => {
+      await runner.send(makeChat(), input('fix it', { codex: 'off', fanOut: false, think: true }))
+      await vi.waitFor(() => expect(queries[0].pushed).toHaveLength(1))
+      expect(queries[0].pushed[0].message).toEqual({
+        role: 'user',
+        content: 'fix it\n\nultrathink'
+      })
+      expect(queries[0].applyFlagSettings).not.toHaveBeenCalled()
     })
   })
 

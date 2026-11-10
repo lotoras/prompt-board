@@ -4,7 +4,7 @@ A personal **command-center desktop app** for Claude Code work: one window showi
 CLI sessions **grouped by project** with live status, plus a **manual kanban** board per project and
 one global overview board. Chats are T3-style: projects on the left, the project's chats as tabs
 on top, a rendered chat driven by the **Claude Agent SDK**, and a composer with model / effort /
-Codex / Ultra / worktree / branch controls. The visual contract is `design/preview.html`.
+Codex / Fan-out / Think harder / worktree / branch controls. The visual contract is `design/preview.html`.
 
 ## "My tasks" = cards on the board (NOT app-development work)
 "What tasks should I do next?" / "what should I work on?" means the user's **kanban cards**, not
@@ -73,7 +73,9 @@ design/preview.html                # signed-off visual contract
 - Claude 1 / Claude 2: `account` on a chat picks the config dir (`~/.claude` or `~/.claude-2`) through `withAccountEnv` in `src/main/accounts.ts`. Choose it on a draft; it is fixed after the first send.
 - New-chat workspace toggles run `git worktree add` under `<repo>/.claude/worktrees/<slug>`
   (ignored via `.git/info/exclude`) and/or `git switch -c` before the first send.
-- Ultra = `applyFlagSettings({ultracode})` + `ultrathink`; every effort change resends `ultracode`.
+- Two separate toggles: Fan-out = `applyFlagSettings({ultracode})`, no prompt text; Think harder =
+  appends `ultrathink`, no flag. Every effort change resends `ultracode`. Stored toggles go through
+  `toChatToggles` (an old `ultra: true` becomes both).
 
 ## Dev
 - `npm run dev:isolated` runs the app with its own data profile (`PROMPT_BOARD_PROFILE`,

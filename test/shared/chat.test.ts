@@ -7,11 +7,12 @@ import {
   modelLabel,
   parseDirectives,
   suggestBranchName,
+  toChatToggles,
   worktreeSlug
 } from '../../src/shared/chat'
 import type { ChatToggles } from '../../src/shared/types'
 
-const OFF: ChatToggles = { codex: 'off', ultra: false }
+const OFF: ChatToggles = { codex: 'off', fanOut: false, think: false }
 
 describe('composePrompt', () => {
   it('returns the trimmed text when there are no files and no directives', () => {
@@ -19,13 +20,13 @@ describe('composePrompt', () => {
   })
 
   it('appends ultrathink then the codex tests line', () => {
-    expect(composePrompt('fix it', { codex: 'tests', ultra: true }, [])).toBe(
+    expect(composePrompt('fix it', { codex: 'tests', fanOut: true, think: true }, [])).toBe(
       'fix it\n\nultrathink\nuse codex'
     )
   })
 
   it('uses the full codex directive line for codex full', () => {
-    expect(composePrompt('fix it', { codex: 'full', ultra: false }, [])).toBe(
+    expect(composePrompt('fix it', { codex: 'full', fanOut: false, think: false }, [])).toBe(
       `fix it\n\n${DIRECTIVE_LINES.codexFull}`
     )
   })
@@ -35,7 +36,7 @@ describe('composePrompt', () => {
       'fix it\n\nAttached files:\n- C:\\a\\b.ts'
     )
     expect(
-      composePrompt('fix it', { codex: 'off', ultra: true }, [
+      composePrompt('fix it', { codex: 'off', fanOut: true, think: true }, [
         { path: 'C:\\a\\b.ts', kind: 'file' }
       ])
     ).toBe('fix it\n\nAttached files:\n- C:\\a\\b.ts\n\nultrathink')
@@ -44,13 +45,48 @@ describe('composePrompt', () => {
   it('never lists image attachments', () => {
     expect(composePrompt('look', OFF, [{ path: 'C:\\a\\shot.png', kind: 'image' }])).toBe('look')
   })
+
+  it('Fan-out alone adds no text (it is a session flag, not a directive)', () => {
+    expect(composePrompt('fix it', { codex: 'off', fanOut: true, think: false }, [])).toBe('fix it')
+  })
+
+  it('Think harder alone appends only ultrathink', () => {
+    expect(composePrompt('fix it', { codex: 'off', fanOut: false, think: true }, [])).toBe(
+      'fix it\n\nultrathink'
+    )
+  })
+})
+
+describe('toChatToggles', () => {
+  it('keeps the current shape', () => {
+    expect(toChatToggles({ codex: 'full', fanOut: true, think: false })).toEqual({
+      codex: 'full',
+      fanOut: true,
+      think: false
+    })
+  })
+
+  it('turns an old `ultra: true` into Fan-out and Think harder', () => {
+    expect(toChatToggles({ codex: 'tests', ultra: true })).toEqual({
+      codex: 'tests',
+      fanOut: true,
+      think: true
+    })
+    expect(toChatToggles({ codex: 'off', ultra: false })).toEqual(OFF)
+  })
+
+  it('falls back to all off for missing or invalid values', () => {
+    expect(toChatToggles(undefined)).toEqual(OFF)
+    expect(toChatToggles(null)).toEqual(OFF)
+    expect(toChatToggles({ codex: 'nonsense', fanOut: 'yes' })).toEqual(OFF)
+  })
 })
 
 describe('parseDirectives', () => {
   it('returns plain text unchanged with default toggles and no files', () => {
     expect(parseDirectives('just a message')).toEqual({
       text: 'just a message',
-      directives: { codex: 'off', ultra: false },
+      directives: { codex: 'off', think: false },
       files: []
     })
   })
@@ -58,9 +94,11 @@ describe('parseDirectives', () => {
   it('round-trips text, toggles and file paths', () => {
     const toggleSets: ChatToggles[] = [
       OFF,
-      { codex: 'tests', ultra: true },
-      { codex: 'full', ultra: false },
-      { codex: 'full', ultra: true }
+      { codex: 'tests', fanOut: true, think: true },
+      { codex: 'full', fanOut: false, think: false },
+      { codex: 'full', fanOut: true, think: true },
+      { codex: 'tests', fanOut: true, think: false },
+      { codex: 'off', fanOut: false, think: true }
     ]
     const files = [
       { path: 'C:\\a\\b.ts', kind: 'file' as const },
@@ -70,7 +108,8 @@ describe('parseDirectives', () => {
       for (const f of [[], files]) {
         const parsed = parseDirectives(composePrompt('please fix it', toggles, f))
         expect(parsed.text).toBe('please fix it')
-        expect(parsed.directives).toEqual(toggles)
+        // Fan-out is a session flag and leaves no trace in the prompt text.
+        expect(parsed.directives).toEqual({ codex: toggles.codex, think: toggles.think })
         expect(parsed.files).toEqual(f.map((x) => x.path))
       }
     }
@@ -79,7 +118,7 @@ describe('parseDirectives', () => {
   it('keeps a literal "ultrathink" typed mid-text', () => {
     const parsed = parseDirectives('please ultrathink about this\nand then more')
     expect(parsed.text).toBe('please ultrathink about this\nand then more')
-    expect(parsed.directives).toEqual({ codex: 'off', ultra: false })
+    expect(parsed.directives).toEqual({ codex: 'off', think: false })
   })
 })
 

@@ -60,7 +60,7 @@ describe('CardEditorModal — Resume session button', () => {
     setActive.mockReset()
     setActive.mockResolvedValue(undefined)
     create.mockResolvedValue({
-      chat: { chatId: 'c1', projectKey: PROJECT_KEY, sessionId: 'sess-1', toggles: { codex: 'off', ultra: false }, started: true }
+      chat: { chatId: 'c1', projectKey: PROJECT_KEY, sessionId: 'sess-1', toggles: { codex: 'off', fanOut: false, think: false }, started: true }
     })
   })
 

@@ -257,7 +257,10 @@ export type PermissionModeId = 'default' | 'acceptEdits' | 'plan' | 'bypassPermi
 /** Per-chat composer switches; sticky per chat, defaults remembered per project. */
 export interface ChatToggles {
   codex: CodexLevel
-  ultra: boolean
+  /** Fan-out: the `ultracode` session flag (independent parts run as a Workflow). Adds no prompt text. */
+  fanOut: boolean
+  /** Think harder: appends `ultrathink` to the prompt (deeper reasoning for that message). */
+  think: boolean
 }
 
 /** New-chat workspace choice, applied once before the first send. */
@@ -382,10 +385,13 @@ export interface ChatAttachment {
   thumbDataUrl?: string
 }
 
-/** Composer switches recovered from a sent prompt (see `parseDirectives`). */
+/**
+ * Composer switches recovered from a sent prompt (see `parseDirectives`). Fan-out is a session
+ * flag and leaves no trace in the prompt text, so it is not part of this.
+ */
 export interface ParsedDirectives {
   codex: CodexLevel
-  ultra: boolean
+  think: boolean
 }
 
 export type ChatItem =

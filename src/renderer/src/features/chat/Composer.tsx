@@ -9,6 +9,7 @@ import {
   Hand,
   Image as ImageIcon,
   ListChecks,
+  Network,
   Paperclip,
   ShieldOff,
   Sparkles,
@@ -226,7 +227,7 @@ export function Composer({ chat }: { chat: ChatMeta }): React.JSX.Element {
 
   return (
     <div
-      className={`composer${chat.toggles.ultra ? ' ultra' : ''}${sweep ? ' sweep' : ''}${dragging ? ' drag' : ''}`}
+      className={`composer${chat.toggles.fanOut ? ' ultra' : ''}${sweep ? ' sweep' : ''}${dragging ? ' drag' : ''}`}
       onDragEnter={(e) => {
         if (!hasFiles(e)) return
         e.preventDefault()
@@ -400,17 +401,31 @@ export function Composer({ chat }: { chat: ChatMeta }): React.JSX.Element {
         <button
           type="button"
           role="switch"
-          aria-checked={chat.toggles.ultra}
-          className={`ctl${chat.toggles.ultra ? ' ultra-on on' : ''}`}
-          title="Ultra: think harder and split the work across subagents"
+          aria-checked={chat.toggles.fanOut}
+          className={`ctl${chat.toggles.fanOut ? ' ultra-on on' : ''}`}
+          title="Fan-out: split independent parts of the work across subagents (ultracode)"
           onClick={() => {
-            const ultra = !chat.toggles.ultra
-            if (ultra) setSweep(true)
-            updateChat(chatId, { toggles: { ...chat.toggles, ultra } })
+            const fanOut = !chat.toggles.fanOut
+            if (fanOut) setSweep(true)
+            updateChat(chatId, { toggles: { ...chat.toggles, fanOut } })
           }}
         >
+          <Network className="i sm" strokeWidth={1.8} />
+          <span>Fan-out</span>
+          <span className="sw" />
+        </button>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={chat.toggles.think}
+          className={`ctl${chat.toggles.think ? ' ultra-on on' : ''}`}
+          title="Think harder: ask for deeper reasoning on each message (ultrathink)"
+          onClick={() =>
+            updateChat(chatId, { toggles: { ...chat.toggles, think: !chat.toggles.think } })
+          }
+        >
           <Sparkles className="i sm" strokeWidth={1.8} />
-          <span>Ultra</span>
+          <span>Think harder</span>
           <span className="sw" />
         </button>
         <span className="grow" />

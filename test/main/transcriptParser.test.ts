@@ -83,7 +83,7 @@ describe('fixture transcript-chat.jsonl', () => {
   it('parses a typed user prompt into text, directives and file attachments', () => {
     const user = byId(items, 'u-1', 'user')
     expect(user.text).toBe('fix the bug')
-    expect(user.directives).toEqual({ codex: 'tests', ultra: true })
+    expect(user.directives).toEqual({ codex: 'tests', think: true })
     expect(user.attachments).toEqual([{ name: 'todo.md', kind: 'file' }])
   })
 

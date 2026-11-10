@@ -124,7 +124,7 @@ function makeChat(overrides: Partial<ChatMeta> = {}): ChatMeta {
   }
 }
 
-const OFF: ChatToggles = { codex: 'off', ultra: false }
+const OFF: ChatToggles = { codex: 'off', fanOut: false, think: false }
 
 function input(text: string) {
   return { text, attachments: [], toggles: OFF }

@@ -1,6 +1,11 @@
 import { app } from 'electron'
 import { join } from 'path'
-import { DEFAULT_PERMISSION_MODE, DEFAULT_TOGGLES, toPermissionMode } from '../../shared/chat'
+import {
+  DEFAULT_PERMISSION_MODE,
+  DEFAULT_TOGGLES,
+  toChatToggles,
+  toPermissionMode
+} from '../../shared/chat'
 import type {
   EffortLevel,
   PermissionModeId,
@@ -69,7 +74,11 @@ export async function loadChatsState(): Promise<PersistedChatsState> {
   }
   if (existing) {
     if (!Array.isArray(existing.chats)) return { chats: [], activeByProject: {} }
-    const chats = existing.chats.map((c) => ({ ...c, permissionMode: toPermissionMode(c.permissionMode) }))
+    const chats = existing.chats.map((c) => ({
+      ...c,
+      permissionMode: toPermissionMode(c.permissionMode),
+      toggles: toChatToggles(c.toggles)
+    }))
     return { chats, activeByProject: existing.activeByProject ?? {} }
   }
   const migrated = migrateFromTerminals(

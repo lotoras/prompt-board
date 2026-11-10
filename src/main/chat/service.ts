@@ -654,7 +654,7 @@ async function update(chatId: string, patch: ChatPatch): Promise<ChatMeta> {
   const before = {
     model: chat.model,
     effort: chat.effort,
-    ultra: chat.toggles.ultra,
+    fanOut: chat.toggles.fanOut,
     permissionMode: chat.permissionMode
   }
   if (patch.model !== undefined) chat.model = patch.model
@@ -670,8 +670,8 @@ async function update(chatId: string, patch: ChatPatch): Promise<ChatMeta> {
     if (chat.permissionMode !== before.permissionMode) {
       await c.runner.setPermissionMode(chatId, chat.permissionMode)
     }
-    if (chat.effort !== before.effort || chat.toggles.ultra !== before.ultra) {
-      await c.runner.setEffort(chatId, chat.effort, chat.toggles.ultra)
+    if (chat.effort !== before.effort || chat.toggles.fanOut !== before.fanOut) {
+      await c.runner.setEffort(chatId, chat.effort, chat.toggles.fanOut)
     }
   }
   changed()

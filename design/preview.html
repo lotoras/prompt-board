@@ -436,6 +436,7 @@ svg.i.sm { width: 13px; height: 13px; }
     <symbol id="i-vol" viewBox="0 0 24 24"><path d="M11 4.7a.7.7 0 0 0-1.2-.5L6.4 7.6A1.4 1.4 0 0 1 5.4 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.4a1.4 1.4 0 0 1 1 .4l3.4 3.4a.7.7 0 0 0 1.2-.5z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.4 18.4a9 9 0 0 0 0-12.8"/></symbol>
     <symbol id="i-mute" viewBox="0 0 24 24"><path d="M11 4.7a.7.7 0 0 0-1.2-.5L6.4 7.6A1.4 1.4 0 0 1 5.4 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.4a1.4 1.4 0 0 1 1 .4l3.4 3.4a.7.7 0 0 0 1.2-.5z"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/></symbol>
     <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M9.9 15.5A2 2 0 0 0 8.5 14l-6.1-1.6a.5.5 0 0 1 0-1L8.5 10A2 2 0 0 0 9.9 8.5l1.6-6.1a.5.5 0 0 1 1 0L14 8.5a2 2 0 0 0 1.5 1.4l6.1 1.6a.5.5 0 0 1 0 1L15.5 14a2 2 0 0 0-1.4 1.4l-1.6 6.1a.5.5 0 0 1-1 0z"/></symbol>
+    <symbol id="i-network" viewBox="0 0 24 24"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></symbol>
     <symbol id="i-flask" viewBox="0 0 24 24"><path d="M10 2v7.5a2 2 0 0 1-.2.9L4.7 20.6a1 1 0 0 0 .9 1.4h12.8a1 1 0 0 0 .9-1.4l-5.1-10.2a2 2 0 0 1-.2-.9V2"/><path d="M8.5 2h7"/><path d="M7 16h10"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
     <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
@@ -532,9 +533,9 @@ const chats = {
     id: 'c1', project: 'pb', title: 'Context meter in the composer', status: 'attention', mode: 'sdk',
     model: 'opus', effort: 'xhigh', ctx: 34, tokens: '341k', when: '1m ago', card: 'k1',
     branch: 'pb/context-meter', worktree: '.claude/worktrees/context-meter', started: true,
-    toggles: { codex: 'tests', ultra: true }, draft: '', attachments: [],
+    toggles: { codex: 'tests', fanOut: true, think: true }, draft: '', attachments: [],
     items: [
-      { k: 'user', text: 'Show how much context the active chat has used. Put a ring next to the model picker, fed from getContextUsage(), and fall back to the transcript for sessions started outside the app.', chips: ['codex:tests', 'ultra'], attachments: [{ name: 'statusline.png', kind: 'image', size: '48 KB' }] },
+      { k: 'user', text: 'Show how much context the active chat has used. Put a ring next to the model picker, fed from getContextUsage(), and fall back to the transcript for sessions started outside the app.', chips: ['codex:tests', 'think'], attachments: [{ name: 'statusline.png', kind: 'image', size: '48 KB' }] },
       { k: 'log', open: false, duration: '2m 14s', steps: [
         { icon: 'file', verb: 'Read', target: 'src/main/sessions/transcript.ts' },
         { icon: 'search', verb: 'Searched', target: '"usage" in src/', meta: '9 results' },
@@ -558,7 +559,7 @@ const chats = {
   c2: {
     id: 'c2', project: 'pb', title: 'Group worktree chats under their project', status: 'busy', mode: 'sdk',
     model: 'fable', effort: 'high', ctx: 12, tokens: '118k', when: 'now', card: 'k2',
-    branch: 'main', worktree: null, started: true, toggles: { codex: 'off', ultra: false }, draft: '', attachments: [], live: true,
+    branch: 'main', worktree: null, started: true, toggles: { codex: 'off', fanOut: false, think: false }, draft: '', attachments: [], live: true,
     items: [
       { k: 'user', text: 'Sessions started inside .claude/worktrees show up as their own project in the sidebar. Keep them under the project they belong to.', chips: [], attachments: [] },
       { k: 'plan', state: 'approved', title: 'Group worktree sessions by owner project', html: '<ul><li>Resolve a cwd under <code>&lt;basePath&gt;/.claude/worktrees/</code> to its project in <code>merge.ts</code>.</li><li>Add tests for nested and sibling worktrees.</li><li>Show the worktree name on the tab.</li></ul>' },
@@ -572,7 +573,7 @@ const chats = {
   c3: {
     id: 'c3', project: 'pb', title: 'Release notes for 0.3', status: 'idle', mode: 'sdk',
     model: 'sonnet', effort: 'medium', ctx: 6, tokens: '58k', when: '2h ago', card: null,
-    branch: 'main', worktree: null, started: true, toggles: { codex: 'off', ultra: false }, draft: '', attachments: [],
+    branch: 'main', worktree: null, started: true, toggles: { codex: 'off', fanOut: false, think: false }, draft: '', attachments: [],
     items: [
       { k: 'user', text: 'Draft short release notes for 0.3 from the commits since 0.2.', chips: [], attachments: [] },
       { k: 'log', open: false, duration: '18s', steps: [
@@ -584,7 +585,7 @@ const chats = {
   c4: {
     id: 'c4', project: 'pb', title: 'Resume flow after an unclean exit', status: 'busy', mode: 'external',
     model: 'opus', effort: 'xhigh', ctx: 51, tokens: '508k', when: 'now', card: null,
-    branch: 'main', worktree: null, started: true, toggles: { codex: 'off', ultra: false }, draft: '', attachments: [],
+    branch: 'main', worktree: null, started: true, toggles: { codex: 'off', fanOut: false, think: false }, draft: '', attachments: [],
     items: [
       { k: 'user', text: 'After a crash the terminals come back empty. Find out why the resume is downgraded to a fresh session.', chips: [], attachments: [] },
       { k: 'log', open: false, duration: '6m 02s', steps: [
@@ -598,7 +599,7 @@ const chats = {
   c5: {
     id: 'c5', project: 'nfe', title: 'Finish security audit', status: 'attention', mode: 'sdk',
     model: 'opus', effort: 'xhigh', ctx: 72, tokens: '722k', when: '6m ago', card: 'k6',
-    branch: 'security-audit', worktree: null, started: true, toggles: { codex: 'full', ultra: false }, draft: '', attachments: [],
+    branch: 'security-audit', worktree: null, started: true, toggles: { codex: 'full', fanOut: false, think: false }, draft: '', attachments: [],
     items: [
       { k: 'user', text: 'Finish the security audit: check the remaining routes for missing CSRF protection and fix what you find.', chips: ['codex:full'], attachments: [] },
       { k: 'log', open: false, duration: '9m 40s', steps: [
@@ -611,7 +612,7 @@ const chats = {
   c6: {
     id: 'c6', project: 'brain', title: 'Statusline effort meter', status: 'idle', mode: 'sdk',
     model: 'haiku', effort: 'low', ctx: 3, tokens: '27k', when: 'yesterday', card: null,
-    branch: 'main', worktree: null, started: true, toggles: { codex: 'off', ultra: false }, draft: '', attachments: [],
+    branch: 'main', worktree: null, started: true, toggles: { codex: 'off', fanOut: false, think: false }, draft: '', attachments: [],
     items: [
       { k: 'user', text: 'Make the effort meter in the statusline five ticks wide.', chips: [], attachments: [] },
       { k: 'md', html: '<p>Done. The meter uses <code>▸</code> for set levels and <code>▹</code> for the rest, coloured per level.</p>' }
@@ -641,7 +642,7 @@ const state = {
   drawer: false,
   drawerTab: 'shell',
   sound: true,
-  defaults: { codex: 'tests', ultra: false }
+  defaults: { codex: 'tests', fanOut: false, think: false }
 };
 
 // ------------------------------------------------------------------ helpers
@@ -739,7 +740,7 @@ function renderTabs() {
 function renderItem(it, chat, i) {
   switch (it.k) {
     case 'user': {
-      const chips = (it.chips || []).map((c) => c === 'ultra' ? `<span class="d-chip">${ic('sparkles', 'sm')}Ultra</span>`
+      const chips = (it.chips || []).map((c) => c === 'think' ? `<span class="d-chip">${ic('sparkles', 'sm')}Think harder</span>`
         : c === 'codex:tests' ? `<span class="d-chip">${ic('flask', 'sm')}Codex writes tests</span>`
         : c === 'codex:full' ? `<span class="d-chip">${ic('flask', 'sm')}Codex tests and review</span>` : '').join('');
       const atts = (it.attachments || []).map((a) => `<span class="a-chip"><span class="thumb" ${a.url ? `style="background-image:url(${a.url})"` : ''}>${a.url ? '' : ic(a.kind === 'image' ? 'image' : 'file', 'sm')}</span>${esc(a.name)}<span class="size">${esc(a.size || '')}</span></span>`).join('');
@@ -833,7 +834,7 @@ function composerHTML(chat) {
   const sendBtn = busy && empty
     ? `<button class="send stop" data-act="stop" title="Stop (Esc)" aria-label="Stop">${ic('stop', 'sm')}</button>`
     : `<button class="send" data-act="send" ${empty ? 'disabled' : ''} title="Send (Enter)" aria-label="Send">${ic('up', 'sm')}</button>`;
-  return `<div class="composer ${t.ultra ? 'ultra' : ''}" id="composer">
+  return `<div class="composer ${t.fanOut ? 'ultra' : ''}" id="composer">
     <div class="drop-hint">Drop files to attach them</div>
     <div class="att-row" id="att-row">${chat.attachments.map((a, j) => `<span class="a-chip"><span class="thumb" ${a.url ? `style="background-image:url(${a.url})"` : ''}>${a.url ? '' : ic(a.kind === 'image' ? 'image' : 'file', 'sm')}</span>${esc(a.name)}<span class="size">${esc(a.size)}</span><button class="rm" data-rm="${j}" aria-label="Remove ${esc(a.name)}">${ic('x', 'sm')}</button></span>`).join('')}</div>
     <textarea id="draft" rows="1" placeholder="${busy ? 'Queue a follow-up for when Claude finishes' : 'Ask Claude to build, fix or explain something'}">${esc(chat.draft)}</textarea>
@@ -847,7 +848,8 @@ function composerHTML(chat) {
         <span class="seg ${t.codex !== 'off' ? 'lit' : ''}" role="radiogroup" aria-label="Codex">
           ${['off', 'tests', 'full'].map((lv) => `<button class="${t.codex === lv ? 'on' : ''}" role="radio" aria-checked="${t.codex === lv}" data-codex="${lv}" title="${lv === 'off' ? 'Claude does everything' : lv === 'tests' ? 'Codex writes the failing tests first' : 'Codex writes the tests and reviews the result'}">${lv === 'off' ? 'Off' : lv === 'tests' ? 'Tests' : 'Full'}</button>`).join('')}
         </span></span>
-      <button class="ctl ${t.ultra ? 'ultra-on on' : ''}" data-act="ultra" role="switch" aria-checked="${t.ultra}" title="Ultra: think harder and split the work across subagents">${ic('sparkles', 'sm')}<span>Ultra</span><span class="sw"></span></button>
+      <button class="ctl ${t.fanOut ? 'ultra-on on' : ''}" data-act="fanout" role="switch" aria-checked="${t.fanOut}" title="Fan-out: split independent parts of the work across subagents (ultracode)">${ic('network', 'sm')}<span>Fan-out</span><span class="sw"></span></button>
+      <button class="ctl ${t.think ? 'ultra-on on' : ''}" data-act="think" role="switch" aria-checked="${t.think}" title="Think harder: ask for deeper reasoning on each message (ultrathink)">${ic('sparkles', 'sm')}<span>Think harder</span><span class="sw"></span></button>
       <span class="grow"></span>
       <span class="ctx" title="${chat.tokens} of 1M context tokens used">${ring(chat.ctx)}<span class="num">${chat.ctx}%</span></span>
       ${sendBtn}
@@ -977,7 +979,7 @@ function send(chat) {
   if (!text && !chat.attachments.length) return;
   const chips = [];
   if (chat.toggles.codex !== 'off') chips.push('codex:' + chat.toggles.codex);
-  if (chat.toggles.ultra) chips.push('ultra');
+  if (chat.toggles.think) chips.push('think');
   const firstSend = !chat.started;
   if (firstSend) {
     chat.started = true;
@@ -1224,9 +1226,10 @@ document.addEventListener('click', (e) => {
     case 'attach': $('#file-pick').click(); return;
     case 'send': send(chat); return;
     case 'stop': chat.status = 'idle'; renderSidebar(); renderTabs(); renderView(); toast('Stopped'); return;
-    case 'ultra': {
-      chat.toggles.ultra = !chat.toggles.ultra; state.defaults.ultra = chat.toggles.ultra; renderComposerOnly(chat);
-      if (chat.toggles.ultra) { const c = $('#composer'); c.classList.add('sweep'); setTimeout(() => c.classList.remove('sweep'), 950); }
+    case 'think': chat.toggles.think = !chat.toggles.think; state.defaults.think = chat.toggles.think; renderComposerOnly(chat); return;
+    case 'fanout': {
+      chat.toggles.fanOut = !chat.toggles.fanOut; state.defaults.fanOut = chat.toggles.fanOut; renderComposerOnly(chat);
+      if (chat.toggles.fanOut) { const c = $('#composer'); c.classList.add('sweep'); setTimeout(() => c.classList.remove('sweep'), 950); }
       return;
     }
     case 'drawer': toggleDrawer(); return;

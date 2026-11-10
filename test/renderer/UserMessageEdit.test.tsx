@@ -16,7 +16,7 @@ const makeItem = (extra: Partial<UserItem> = {}): UserItem => ({
   kind: 'user',
   id: 'u-2',
   text: 'original text',
-  directives: { codex: 'off', ultra: false },
+  directives: { codex: 'off', think: false },
   attachments: [],
   parentUuid: 'a-1',
   ...extra
@@ -69,7 +69,7 @@ describe('UserMessage edit', () => {
   })
 
   it('Send edit rewinds with the edited text and no file restore by default', () => {
-    const c = makeChat({ toggles: { codex: 'tests', ultra: true } })
+    const c = makeChat({ toggles: { codex: 'tests', fanOut: true, think: true } })
     renderMsg(makeItem(), c)
     fireEvent.click(screen.getByRole('button', { name: 'Edit message' }))
     fireEvent.change(screen.getByLabelText('Edit message text'), { target: { value: 'better text' } })
@@ -79,7 +79,7 @@ describe('UserMessage edit', () => {
       userItemId: 'u-2',
       text: 'better text',
       attachments: [],
-      toggles: { codex: 'tests', ultra: true },
+      toggles: { codex: 'tests', fanOut: true, think: true },
       revertFiles: false
     })
   })

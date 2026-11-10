@@ -82,7 +82,8 @@ export interface ChatRunner {
   probeUsage(cwd: string, account?: ClaudeAccountId): Promise<unknown | null>
   probeCommands(cwd: string, account?: ClaudeAccountId): Promise<SlashCommandInfo[]>
   setModel(chatId: string, model: string): Promise<void>
-  setEffort(chatId: string, effort: EffortLevel, ultra: boolean): Promise<void>
+  /** Every effort change resends the Fan-out (`ultracode`) flag; an effort change alone turns it off. */
+  setEffort(chatId: string, effort: EffortLevel, fanOut: boolean): Promise<void>
   isRunning(chatId: string): boolean
   close(chatId: string): void
   closeAll(): void
@@ -105,7 +106,7 @@ interface Slot {
   account: ClaudeAccountId
   query: SdkQuery
   queue: Queue<unknown>
-  lastUltra: boolean
+  lastFanOut: boolean
   pending: Map<string, Pending>
   liveText: string
   liveActive: boolean
@@ -611,7 +612,7 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
       account,
       query,
       queue,
-      lastUltra: false,
+      lastFanOut: false,
       pending: new Map(),
       liveText: '',
       liveActive: false,
@@ -662,12 +663,12 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
         await settled
       }
 
-      if (input.toggles.ultra !== slot.lastUltra) {
+      if (input.toggles.fanOut !== slot.lastFanOut) {
         await slot.query.applyFlagSettings({
-          ultracode: input.toggles.ultra,
+          ultracode: input.toggles.fanOut,
           effortLevel: chat.effort
         })
-        slot.lastUltra = input.toggles.ultra
+        slot.lastFanOut = input.toggles.fanOut
       }
 
       const text = composePrompt(input.text, input.toggles, input.attachments)
@@ -846,11 +847,11 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
       await slots.get(chatId)?.query.setModel(model)
     },
 
-    async setEffort(chatId, effort, ultra) {
+    async setEffort(chatId, effort, fanOut) {
       const slot = slots.get(chatId)
       if (!slot) return
-      await slot.query.applyFlagSettings({ effortLevel: effort, ultracode: ultra })
-      slot.lastUltra = ultra
+      await slot.query.applyFlagSettings({ effortLevel: effort, ultracode: fanOut })
+      slot.lastFanOut = fanOut
     },
 
     isRunning(chatId) {

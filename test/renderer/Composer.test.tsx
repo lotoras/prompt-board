@@ -72,24 +72,43 @@ describe('Composer', () => {
     expect(screen.getByRole('radio', { name: 'Off' }).getAttribute('aria-checked')).toBe('true')
     fireEvent.click(screen.getByRole('radio', { name: 'Tests' }))
     expect(chat.update).toHaveBeenCalledWith('chat-1', {
-      toggles: { codex: 'tests', ultra: false }
+      toggles: { codex: 'tests', fanOut: false, think: false }
     })
   })
 
-  it('the Ultra switch reflects state and updates the toggles', () => {
-    const c = makeChat({ toggles: { codex: 'full', ultra: false } })
+  it('the Fan-out switch reflects state and changes only Fan-out', () => {
+    const c = makeChat({ toggles: { codex: 'full', fanOut: false, think: false } })
     seed(c)
     render(<Composer chat={c} />)
-    const sw = screen.getByRole('switch', { name: /ultra/i })
+    const sw = screen.getByRole('switch', { name: /fan-out/i })
     expect(sw.getAttribute('aria-checked')).toBe('false')
     fireEvent.click(sw)
     expect(chat.update).toHaveBeenCalledWith('chat-1', {
-      toggles: { codex: 'full', ultra: true }
+      toggles: { codex: 'full', fanOut: true, think: false }
     })
   })
 
+  it('the Think harder switch reflects state and changes only Think harder', () => {
+    const c = makeChat({ toggles: { codex: 'full', fanOut: false, think: true } })
+    seed(c)
+    render(<Composer chat={c} />)
+    const sw = screen.getByRole('switch', { name: /think harder/i })
+    expect(sw.getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(sw)
+    expect(chat.update).toHaveBeenCalledWith('chat-1', {
+      toggles: { codex: 'full', fanOut: false, think: false }
+    })
+  })
+
+  it('has no combined Ultra switch', () => {
+    const c = makeChat()
+    seed(c)
+    render(<Composer chat={c} />)
+    expect(screen.queryByRole('switch', { name: /ultra/i })).toBeNull()
+  })
+
   it('Enter sends a started chat without a workspace', async () => {
-    const c = makeChat({ started: true, toggles: { codex: 'tests', ultra: true } })
+    const c = makeChat({ started: true, toggles: { codex: 'tests', fanOut: true, think: true } })
     seed(c, { text: 'fix it' })
     render(<Composer chat={c} />)
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
@@ -98,7 +117,7 @@ describe('Composer', () => {
       chatId: 'chat-1',
       text: 'fix it',
       attachments: [],
-      toggles: { codex: 'tests', ultra: true },
+      toggles: { codex: 'tests', fanOut: true, think: true },
       workspace: undefined
     })
   })
@@ -114,7 +133,7 @@ describe('Composer', () => {
       chatId: 'chat-1',
       text: 'go',
       attachments: [att],
-      toggles: { codex: 'off', ultra: false },
+      toggles: { codex: 'off', fanOut: false, think: false },
       workspace: WORKSPACE
     })
   })

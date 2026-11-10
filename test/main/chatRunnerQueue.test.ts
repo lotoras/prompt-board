@@ -80,7 +80,7 @@ function makeChat(overrides: Partial<ChatMeta> = {}): ChatMeta {
   }
 }
 
-const OFF: ChatToggles = { codex: 'off', ultra: false }
+const OFF: ChatToggles = { codex: 'off', fanOut: false, think: false }
 const input = (text: string) => ({ text, attachments: [], toggles: OFF })
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 20))
 
