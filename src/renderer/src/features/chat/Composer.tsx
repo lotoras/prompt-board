@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   ArrowUp,
+  Brain,
   Check,
   ChevronDown,
   File as FileIcon,
@@ -12,7 +13,6 @@ import {
   Network,
   Paperclip,
   ShieldOff,
-  Sparkles,
   Square,
   X
 } from 'lucide-react'
@@ -398,36 +398,37 @@ export function Composer({ chat }: { chat: ChatMeta }): React.JSX.Element {
             ))}
           </span>
         </span>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={chat.toggles.fanOut}
-          className={`ctl${chat.toggles.fanOut ? ' ultra-on on' : ''}`}
-          title="Fan-out: split independent parts of the work across subagents (ultracode)"
-          onClick={() => {
-            const fanOut = !chat.toggles.fanOut
-            if (fanOut) setSweep(true)
-            updateChat(chatId, { toggles: { ...chat.toggles, fanOut } })
-          }}
-        >
-          <Network className="i sm" strokeWidth={1.8} />
-          <span>Fan-out</span>
-          <span className="sw" />
-        </button>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={chat.toggles.think}
-          className={`ctl${chat.toggles.think ? ' ultra-on on' : ''}`}
-          title="Think harder: ask for deeper reasoning on each message (ultrathink)"
-          onClick={() =>
-            updateChat(chatId, { toggles: { ...chat.toggles, think: !chat.toggles.think } })
-          }
-        >
-          <Sparkles className="i sm" strokeWidth={1.8} />
-          <span>Think harder</span>
-          <span className="sw" />
-        </button>
+        {/* Two independent switches as compact icon chips, so the control row stays on one line. */}
+        <span className="seg lit tgl" role="group" aria-label="Modes">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={chat.toggles.fanOut}
+            aria-label="Fan-out"
+            className={chat.toggles.fanOut ? 'on' : ''}
+            title="Fan-out: split independent parts of the work across subagents (ultracode)"
+            onClick={() => {
+              const fanOut = !chat.toggles.fanOut
+              if (fanOut) setSweep(true)
+              updateChat(chatId, { toggles: { ...chat.toggles, fanOut } })
+            }}
+          >
+            <Network className="i sm" strokeWidth={1.8} />
+          </button>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={chat.toggles.think}
+            aria-label="Think harder"
+            className={chat.toggles.think ? 'on' : ''}
+            title="Think harder: ask for deeper reasoning on each message (ultrathink)"
+            onClick={() =>
+              updateChat(chatId, { toggles: { ...chat.toggles, think: !chat.toggles.think } })
+            }
+          >
+            <Brain className="i sm" strokeWidth={1.8} />
+          </button>
+        </span>
         <span className="grow" />
         <span
           className="ctx"
