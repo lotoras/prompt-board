@@ -100,6 +100,23 @@ describe('Composer', () => {
     })
   })
 
+  it('the effort control shows the ticks only and names the level in its label', () => {
+    const c = makeChat({ effort: 'high' })
+    seed(c)
+    render(<Composer chat={c} />)
+    const btn = screen.getByRole('button', { name: 'Effort: high' })
+    expect(btn.textContent).toBe('')
+    expect(btn.getAttribute('title')).toBe('Effort: high (Ctrl+Shift+E)')
+  })
+
+  it('Fan-out and Think harder are icon chips without a text label', () => {
+    const c = makeChat()
+    seed(c)
+    render(<Composer chat={c} />)
+    expect(screen.getByRole('switch', { name: 'Fan-out' }).textContent).toBe('')
+    expect(screen.getByRole('switch', { name: 'Think harder' }).textContent).toBe('')
+  })
+
   it('has no combined Ultra switch', () => {
     const c = makeChat()
     seed(c)

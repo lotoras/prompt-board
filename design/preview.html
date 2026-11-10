@@ -845,7 +845,7 @@ function composerHTML(chat) {
       <button class="ctl icon" data-act="attach" title="Attach files (or drop / paste them)" aria-label="Attach files">${ic('clip')}</button>
       <span class="sep"></span>
       <button class="ctl" data-pop="model" title="Model (Ctrl+Shift+M)"><span class="mdot" style="background:${m.color}"></span>${m.name}${ic('down', 'sm')}</button>
-      <button class="ctl" data-pop="effort" title="Effort (Ctrl+Shift+E)">${ticks(e.id)}<span>${e.id}</span>${ic('down', 'sm')}</button>
+      <button class="ctl" data-pop="effort" title="Effort: ${e.id} (Ctrl+Shift+E)" aria-label="Effort: ${e.id}">${ticks(e.id)}${ic('down', 'sm')}</button>
       <span class="sep"></span>
       <span class="seg-wrap" title="How much Codex is involved">${ic('flask', 'sm')}<span class="seg-lbl">Codex</span>
         <span class="seg ${t.codex !== 'off' ? 'lit' : ''}" role="radiogroup" aria-label="Codex">

@@ -367,11 +367,11 @@ export function Composer({ chat }: { chat: ChatMeta }): React.JSX.Element {
           ref={setEffortEl}
           type="button"
           className="ctl"
-          title="Effort (Ctrl+Shift+E)"
+          title={`Effort: ${chat.effort} (Ctrl+Shift+E)`}
+          aria-label={`Effort: ${chat.effort}`}
           onClick={() => setPopover(popover === 'effort' ? null : 'effort')}
         >
           <EffortTicks effort={chat.effort} />
-          <span>{chat.effort}</span>
           <ChevronDown className="i sm" strokeWidth={1.8} />
         </button>
         <span className="sep" />
