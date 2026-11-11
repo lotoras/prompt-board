@@ -17,7 +17,8 @@ const { userDataDir, supabaseState, safeStorageState } = vi.hoisted(() => ({
           data: { session: { access_token: string; refresh_token: string } | null }
           error: unknown
         }),
-    signInWithPasswordCalls: 0
+    signInWithPasswordCalls: 0,
+    stopAutoRefreshCalls: 0
   },
   safeStorageState: { available: true }
 }))
@@ -53,8 +54,12 @@ vi.mock('@supabase/supabase-js', () => {
         onAuthStateChange: vi.fn((cb: (event: string, session: unknown) => void) => {
           supabaseState.authCallback = cb
           return { data: { subscription: { unsubscribe: vi.fn() } } }
+        }),
+        stopAutoRefresh: vi.fn(async () => {
+          supabaseState.stopAutoRefreshCalls += 1
         })
       },
+      removeAllChannels: vi.fn(async () => []),
       from(table: string) {
         return {
           select: () => {
@@ -100,6 +105,7 @@ describe('sync/engine', () => {
     supabaseState.getUserImpl = null
     supabaseState.signInWithPasswordImpl = null
     supabaseState.signInWithPasswordCalls = 0
+    supabaseState.stopAutoRefreshCalls = 0
     safeStorageState.available = true
     tmpDir = await fs.mkdtemp(join(os.tmpdir(), 'sync-engine-'))
     userDataDir.current = tmpDir
@@ -507,6 +513,70 @@ describe('sync/engine', () => {
 
       expect(engine.getSyncStatus()).toMatchObject({ state: 'error', error: 'Sign-in required' })
       expect(supabaseState.signInWithPasswordCalls).toBe(1)
+    })
+
+    it('signs in again from the stored password when the session is lost at runtime (SIGNED_OUT)', async () => {
+      const { engine, config } = await loadModules()
+      await configureWithEncryptedPassword(config, { session: { accessToken: 'at', refreshToken: 'rt' } })
+      await engine.startSync(() => null)
+      expect(supabaseState.signInWithPasswordCalls).toBe(0)
+
+      supabaseState.authCallback?.('SIGNED_OUT', null)
+
+      await vi.waitFor(() => expect(supabaseState.signInWithPasswordCalls).toBe(1))
+      await vi.waitFor(() => expect(engine.getSyncStatus().state).toBe('online'))
+    })
+
+    it('shows "Sign-in required" when the session is lost at runtime and no password is stored', async () => {
+      const { engine, config } = await loadModules()
+      await configureSync(config)
+      await engine.startSync(() => null)
+
+      supabaseState.authCallback?.('SIGNED_OUT', null)
+
+      await vi.waitFor(() =>
+        expect(engine.getSyncStatus()).toMatchObject({ state: 'error', error: 'Sign-in required' })
+      )
+    })
+
+    it('ignores SIGNED_OUT after stopSync (no re-sign-in on a stopped client)', async () => {
+      const { engine, config } = await loadModules()
+      await configureWithEncryptedPassword(config, { session: { accessToken: 'at', refreshToken: 'rt' } })
+      await engine.startSync(() => null)
+      const cb = supabaseState.authCallback
+      engine.stopSync()
+
+      cb?.('SIGNED_OUT', null)
+      await new Promise((r) => setTimeout(r, 20))
+
+      expect(supabaseState.signInWithPasswordCalls).toBe(0)
+    })
+  })
+
+  describe('one refreshing client per session', () => {
+    it('stops the auto-refresh ticker of the client on stopSync', async () => {
+      const { engine, config } = await loadModules()
+      await configureSync(config)
+      await engine.startSync(() => null)
+
+      engine.stopSync()
+
+      expect(supabaseState.stopAutoRefreshCalls).toBe(1)
+    })
+
+    it('configure() signs in with a client that never auto-refreshes the shared session', async () => {
+      const { engine } = await loadModules()
+      const { createClient } = await import('@supabase/supabase-js')
+      vi.mocked(createClient).mockClear()
+
+      await engine.configure(
+        { url: 'https://x.supabase.co', anonKey: 'anon', email: 'a@b.com', password: 'secret' },
+        () => null
+      )
+
+      const calls = vi.mocked(createClient).mock.calls
+      const refreshing = calls.filter((c) => (c[2] as { auth?: { autoRefreshToken?: boolean } })?.auth?.autoRefreshToken !== false)
+      expect(refreshing).toHaveLength(1)
     })
   })
 

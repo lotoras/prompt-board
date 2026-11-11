@@ -62,6 +62,12 @@ function errMessage(e: unknown): string {
 }
 
 const SUPABASE_OPTS = { auth: { persistSession: false, autoRefreshToken: true } }
+/**
+ * For a sign-in-only client whose session is handed to the main client. In Node the auto-refresh
+ * ticker never stops by itself, and Supabase refresh tokens are single-use: two clients refreshing
+ * one session reuse a spent token, and Supabase then revokes the session.
+ */
+const SIGN_IN_ONLY_OPTS = { auth: { persistSession: false, autoRefreshToken: false } }
 const MIN_BACKOFF_MS = 1000
 const MAX_BACKOFF_MS = 60000
 
@@ -341,46 +347,41 @@ export async function startSync(getWindow: () => BrowserWindow | null): Promise<
     return
   }
   setStatus({ state: 'connecting' })
-  client = createClient(config.url, config.anonKey, SUPABASE_OPTS)
-  const { data: authListener } = client.auth.onAuthStateChange((event, session) => {
+  const c = createClient(config.url, config.anonKey, SUPABASE_OPTS)
+  client = c
+  let started = false
+  const { data: authListener } = c.auth.onAuthStateChange((event, session) => {
     if ((event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') && session) {
       void saveSessionTokens({
         accessToken: session.access_token,
         refreshToken: session.refresh_token
       })
+    } else if (event === 'SIGNED_OUT' && started) {
+      // A refresh failed for good (revoked / expired refresh token). Defer: auth calls inside
+      // this callback would deadlock the auth lock.
+      setTimeout(() => {
+        if (client === c) void recoverSession(c, config)
+      }, 0)
     }
   })
   authSub = authListener.subscription
 
   let authed = false
   if (config.session) {
-    await client.auth.setSession({
+    await c.auth.setSession({
       access_token: config.session.accessToken,
       refresh_token: config.session.refreshToken
     })
-    const { error } = await client.auth.getUser()
+    const { error } = await c.auth.getUser()
     authed = !error
   }
-  if (!authed && config.encryptedPassword) {
-    const pw = decryptSecret(config.encryptedPassword)
-    if (pw) {
-      const { data, error } = await client.auth.signInWithPassword({
-        email: config.email,
-        password: pw
-      })
-      if (!error && data.session) {
-        await saveSessionTokens({
-          accessToken: data.session.access_token,
-          refreshToken: data.session.refresh_token
-        })
-        authed = true
-      }
-    }
-  }
+  if (!authed) authed = await signInWithStoredPassword(c, config)
+  if (client !== c) return
   if (!authed) {
     setStatus({ state: 'error', error: 'Sign-in required' })
     return
   }
+  started = true
 
   subscribeRealtime(config)
   try {
@@ -394,7 +395,53 @@ export async function startSync(getWindow: () => BrowserWindow | null): Promise<
   scheduleFlush(0)
 }
 
+/** Sign in with the safeStorage-encrypted password; the SIGNED_IN listener persists the tokens. */
+async function signInWithStoredPassword(c: SupabaseClient, config: SyncConfig): Promise<boolean> {
+  const pw = config.encryptedPassword ? decryptSecret(config.encryptedPassword) : null
+  if (!pw) return false
+  const { data, error } = await c.auth.signInWithPassword({ email: config.email, password: pw })
+  if (error || !data.session) return false
+  await saveSessionTokens({
+    accessToken: data.session.access_token,
+    refreshToken: data.session.refresh_token
+  })
+  return true
+}
+
+let recovering: Promise<void> | null = null
+
+/** Runtime session loss: sign in again, then catch up on changes missed while signed out. */
+function recoverSession(c: SupabaseClient, config: SyncConfig): Promise<void> {
+  recovering ??= (async () => {
+    try {
+      setStatus({ state: 'connecting' })
+      const authed = await signInWithStoredPassword(c, config)
+      if (client !== c) return
+      if (!authed) {
+        setStatus({ state: 'error', error: 'Sign-in required' })
+        return
+      }
+      try {
+        await pull(config)
+        setStatus({ state: 'online', lastSyncAt: Date.now(), error: undefined })
+      } catch (err) {
+        setStatus({ state: 'offline', error: errMessage(err) })
+      }
+      scheduleFlush(0)
+    } finally {
+      recovering = null
+    }
+  })()
+  return recovering
+}
+
 export function stopSync(): void {
+  if (client) {
+    // The Node auto-refresh ticker outlives the client reference; stop it so an old client
+    // never refreshes (and so revokes) the session the next client uses.
+    void client.auth.stopAutoRefresh()
+    void client.removeAllChannels()
+  }
   if (channel) {
     void channel.unsubscribe()
     channel = null
@@ -416,7 +463,7 @@ export async function configure(
   input: SyncConfigureInput,
   getWindow: () => BrowserWindow | null
 ): Promise<SyncStatus> {
-  const authClient = createClient(input.url, input.anonKey, SUPABASE_OPTS)
+  const authClient = createClient(input.url, input.anonKey, SIGN_IN_ONLY_OPTS)
   const { data, error } = await authClient.auth.signInWithPassword({
     email: input.email,
     password: input.password
