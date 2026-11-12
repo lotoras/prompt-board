@@ -115,7 +115,8 @@ describe('sync/engine', () => {
   afterEach(async () => {
     vi.useRealTimers()
     vi.doUnmock('../../src/main/sync/config')
-    await fs.rm(tmpDir, { recursive: true, force: true })
+    // The engine may still be writing (session tokens, sync-debug.log) when a test ends.
+    await fs.rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
     await fs.rm(projectDir, { recursive: true, force: true })
   })
 
@@ -418,6 +419,40 @@ describe('sync/engine', () => {
       expect(decoded).toBe('super-secret')
     })
 
+    it('reconnects with the saved password when the password field is left empty', async () => {
+      const { engine, config } = await loadModules()
+      await engine.configure(
+        { url: 'https://x.supabase.co', anonKey: 'anon', email: 'a@b.com', password: 'super-secret' },
+        () => null
+      )
+      const { createClient } = await import('@supabase/supabase-js')
+      vi.mocked(createClient).mockClear()
+      supabaseState.signInWithPasswordCalls = 0
+
+      const status = await engine.configure(
+        { url: 'https://x.supabase.co', anonKey: 'anon', email: 'a@b.com', password: '' },
+        () => null
+      )
+
+      expect(status.state).toBe('online')
+      expect(supabaseState.signInWithPasswordCalls).toBe(1)
+      const signInClient = vi.mocked(createClient).mock.results[0].value
+      expect(signInClient.auth.signInWithPassword).toHaveBeenCalledWith({
+        email: 'a@b.com',
+        password: 'super-secret'
+      })
+      const saved = await config.loadSyncConfig()
+      expect(Buffer.from(saved!.encryptedPassword!, 'base64').toString('utf8')).toBe('super-secret')
+    })
+
+    it('rejects an empty password when none is saved', async () => {
+      const { engine } = await loadModules()
+      await expect(
+        engine.configure({ url: 'https://x.supabase.co', anonKey: 'anon', email: 'a@b.com', password: '' }, () => null)
+      ).rejects.toThrow('Enter your password')
+      expect(supabaseState.signInWithPasswordCalls).toBe(0)
+    })
+
     it('persists rotated session tokens to sync.json on TOKEN_REFRESHED', async () => {
       const { engine, config } = await loadModules()
       await configureSync(config)
@@ -537,6 +572,74 @@ describe('sync/engine', () => {
       await vi.waitFor(() =>
         expect(engine.getSyncStatus()).toMatchObject({ state: 'error', error: 'Sign-in required' })
       )
+    })
+
+    it('keeps retrying when the network is down at start, then comes online by itself', async () => {
+      const { engine, config } = await loadModules()
+      await configureWithEncryptedPassword(config)
+      supabaseState.signInWithPasswordImpl = () => ({
+        data: { session: null },
+        error: { name: 'AuthRetryableFetchError', status: 0, message: 'fetch failed' }
+      })
+
+      await engine.startSync(() => null)
+      expect(engine.getSyncStatus()).toMatchObject({ state: 'offline', error: 'fetch failed' })
+
+      supabaseState.signInWithPasswordImpl = null
+      await vi.waitFor(() => expect(engine.getSyncStatus().state).toBe('online'), { timeout: 3000 })
+      expect(supabaseState.signInWithPasswordCalls).toBe(2)
+      engine.stopSync()
+    })
+
+    it('does not fall back to the password when the saved session check fails on the network', async () => {
+      const { engine, config } = await loadModules()
+      await configureWithEncryptedPassword(config, { session: { accessToken: 'at', refreshToken: 'rt' } })
+      let getUserCalls = 0
+      supabaseState.getUserImpl = () => {
+        getUserCalls += 1
+        return getUserCalls === 1
+          ? { data: { user: null }, error: { name: 'AuthRetryableFetchError', status: 0, message: 'fetch failed' } }
+          : { data: { user: { id: 'user-1' } }, error: null }
+      }
+
+      await engine.startSync(() => null)
+      expect(engine.getSyncStatus().state).toBe('offline')
+
+      await vi.waitFor(() => expect(engine.getSyncStatus().state).toBe('online'), { timeout: 3000 })
+      expect(supabaseState.signInWithPasswordCalls).toBe(0)
+      engine.stopSync()
+    })
+
+    it('keeps retrying a runtime re-sign-in that fails on the network (SIGNED_OUT while offline)', async () => {
+      const { engine, config } = await loadModules()
+      await configureWithEncryptedPassword(config, { session: { accessToken: 'at', refreshToken: 'rt' } })
+      await engine.startSync(() => null)
+      supabaseState.signInWithPasswordImpl = () => ({
+        data: { session: null },
+        error: { name: 'AuthRetryableFetchError', status: 0, message: 'fetch failed' }
+      })
+
+      supabaseState.authCallback?.('SIGNED_OUT', null)
+      await vi.waitFor(() => expect(engine.getSyncStatus().state).toBe('offline'))
+
+      supabaseState.signInWithPasswordImpl = null
+      await vi.waitFor(() => expect(engine.getSyncStatus().state).toBe('online'), { timeout: 3000 })
+      expect(supabaseState.signInWithPasswordCalls).toBe(2)
+      engine.stopSync()
+    })
+
+    it('stops retrying after stopSync', async () => {
+      const { engine, config } = await loadModules()
+      await configureWithEncryptedPassword(config)
+      supabaseState.signInWithPasswordImpl = () => ({
+        data: { session: null },
+        error: { name: 'AuthRetryableFetchError', status: 0, message: 'fetch failed' }
+      })
+      await engine.startSync(() => null)
+      engine.stopSync()
+
+      await new Promise((r) => setTimeout(r, 1500))
+      expect(supabaseState.signInWithPasswordCalls).toBe(1)
     })
 
     it('ignores SIGNED_OUT after stopSync (no re-sign-in on a stopped client)', async () => {

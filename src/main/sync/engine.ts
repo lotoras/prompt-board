@@ -1,5 +1,8 @@
 import type { BrowserWindow } from 'electron'
+import { app } from 'electron'
 import { randomUUID } from 'crypto'
+import { appendFileSync } from 'fs'
+import { join } from 'path'
 import { createClient, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js'
 import { IPC_CHANNELS } from '../../shared/types'
 import type {
@@ -349,8 +352,9 @@ export async function startSync(getWindow: () => BrowserWindow | null): Promise<
   setStatus({ state: 'connecting' })
   const c = createClient(config.url, config.anonKey, SUPABASE_OPTS)
   client = c
-  let started = false
+  started = false
   const { data: authListener } = c.auth.onAuthStateChange((event, session) => {
+    syncLog('auth', { event })
     if ((event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') && session) {
       void saveSessionTokens({
         accessToken: session.access_token,
@@ -360,79 +364,129 @@ export async function startSync(getWindow: () => BrowserWindow | null): Promise<
       // A refresh failed for good (revoked / expired refresh token). Defer: auth calls inside
       // this callback would deadlock the auth lock.
       setTimeout(() => {
-        if (client === c) void recoverSession(c, config)
+        if (client === c) void connect(c, false)
       }, 0)
     }
   })
   authSub = authListener.subscription
+  await connect(c, true)
+}
 
-  let authed = false
-  if (config.session) {
-    await c.auth.setSession({
-      access_token: config.session.accessToken,
-      refresh_token: config.session.refreshToken
-    })
-    const { error } = await c.auth.getUser()
-    authed = !error
-  }
-  if (!authed) authed = await signInWithStoredPassword(c, config)
-  if (client !== c) return
-  if (!authed) {
-    setStatus({ state: 'error', error: 'Sign-in required' })
-    return
-  }
-  started = true
+/**
+ * Network / server-side failures (offline, DNS, 429, 5xx) are transient: retry them. Any other
+ * auth error (wrong password, revoked token) needs the user.
+ */
+function isTransient(e: unknown): boolean {
+  if (!e || typeof e !== 'object') return false
+  const { name, status } = e as { name?: unknown; status?: unknown }
+  if (name === 'AuthRetryableFetchError') return true
+  return typeof status === 'number' && (status === 0 || status === 429 || status >= 500)
+}
 
-  subscribeRealtime(config)
-  try {
-    await pull(config)
-    setStatus({ state: 'online', lastSyncAt: Date.now(), error: undefined })
-  } catch (err) {
-    setStatus({ state: 'error', error: errMessage(err) })
-  }
-  const pendingOps = (await loadOutbox()).ops.length
-  setStatus({ pendingOps })
-  scheduleFlush(0)
+type AuthOutcome = { ok: true } | { ok: false; transient: boolean; error?: string }
+const DENIED: AuthOutcome = { ok: false, transient: false }
+
+function failure(e: unknown): AuthOutcome {
+  return { ok: false, transient: isTransient(e), error: errMessage(e) }
 }
 
 /** Sign in with the safeStorage-encrypted password; the SIGNED_IN listener persists the tokens. */
-async function signInWithStoredPassword(c: SupabaseClient, config: SyncConfig): Promise<boolean> {
+async function signInWithStoredPassword(c: SupabaseClient, config: SyncConfig): Promise<AuthOutcome> {
   const pw = config.encryptedPassword ? decryptSecret(config.encryptedPassword) : null
-  if (!pw) return false
+  if (!pw) return DENIED
   const { data, error } = await c.auth.signInWithPassword({ email: config.email, password: pw })
-  if (error || !data.session) return false
+  if (error) return failure(error)
+  if (!data.session) return DENIED
   await saveSessionTokens({
     accessToken: data.session.access_token,
     refreshToken: data.session.refresh_token
   })
-  return true
+  return { ok: true }
 }
 
-let recovering: Promise<void> | null = null
+/** Resume the saved session if it still works, else sign in with the stored password. */
+async function authenticate(c: SupabaseClient, config: SyncConfig, useSession: boolean): Promise<AuthOutcome> {
+  if (useSession && config.session) {
+    const { error: setError } = await c.auth.setSession({
+      access_token: config.session.accessToken,
+      refresh_token: config.session.refreshToken
+    })
+    if (setError && isTransient(setError)) return failure(setError)
+    if (!setError) {
+      const { error } = await c.auth.getUser()
+      if (!error) return { ok: true }
+      if (isTransient(error)) return failure(error)
+    }
+  }
+  return signInWithStoredPassword(c, config)
+}
 
-/** Runtime session loss: sign in again, then catch up on changes missed while signed out. */
-function recoverSession(c: SupabaseClient, config: SyncConfig): Promise<void> {
-  recovering ??= (async () => {
+let started = false
+let connecting: { c: SupabaseClient; done: Promise<void> } | null = null
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+let reconnectBackoffMs = MIN_BACKOFF_MS
+
+/**
+ * Sign in, subscribe, pull and flush. A transient failure (no network after sleep / boot) keeps
+ * retrying with backoff instead of giving up, so the connection comes back by itself.
+ */
+function connect(c: SupabaseClient, useSession: boolean): Promise<void> {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+  if (connecting?.c === c) return connecting.done
+  const done = (async () => {
     try {
+      const config = await loadSyncConfig()
+      if (!config || client !== c) return
       setStatus({ state: 'connecting' })
-      const authed = await signInWithStoredPassword(c, config)
+      const outcome = await authenticate(c, config, useSession)
+      syncLog('connect', { useSession, ...outcome })
       if (client !== c) return
-      if (!authed) {
-        setStatus({ state: 'error', error: 'Sign-in required' })
+      if (!outcome.ok) {
+        if (outcome.transient) {
+          setStatus({ state: 'offline', error: outcome.error })
+          const delay = reconnectBackoffMs
+          reconnectBackoffMs = Math.min(reconnectBackoffMs * 2, MAX_BACKOFF_MS)
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = null
+            if (client === c) void connect(c, useSession)
+          }, delay)
+        } else {
+          setStatus({ state: 'error', error: 'Sign-in required' })
+        }
         return
       }
+      reconnectBackoffMs = MIN_BACKOFF_MS
+      started = true
+      if (!channel) subscribeRealtime(config)
       try {
         await pull(config)
         setStatus({ state: 'online', lastSyncAt: Date.now(), error: undefined })
       } catch (err) {
-        setStatus({ state: 'offline', error: errMessage(err) })
+        setStatus({ state: 'error', error: errMessage(err) })
       }
+      setStatus({ pendingOps: (await loadOutbox()).ops.length })
       scheduleFlush(0)
     } finally {
-      recovering = null
+      if (connecting?.c === c) connecting = null
     }
   })()
-  return recovering
+  connecting = { c, done }
+  return done
+}
+
+/** Append-only auth diagnostics in userData/sync-debug.log. Never logs tokens or passwords. */
+function syncLog(event: string, data: Record<string, unknown> = {}): void {
+  try {
+    appendFileSync(
+      join(app.getPath('userData'), 'sync-debug.log'),
+      `${new Date().toISOString()} ${event} ${JSON.stringify(data)}\n`
+    )
+  } catch {
+    // diagnostics must never break sync
+  }
 }
 
 export function stopSync(): void {
@@ -454,8 +508,14 @@ export function stopSync(): void {
     clearTimeout(flushTimer)
     flushTimer = null
   }
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
   client = null
+  started = false
   backoffMs = MIN_BACKOFF_MS
+  reconnectBackoffMs = MIN_BACKOFF_MS
   setStatus({ state: 'disabled', pendingOps: 0, error: undefined })
 }
 
@@ -463,15 +523,22 @@ export async function configure(
   input: SyncConfigureInput,
   getWindow: () => BrowserWindow | null
 ): Promise<SyncStatus> {
+  const existing = await loadSyncConfig()
+  // An empty field means "use the saved password" (the form shows it as "•••••• (saved)").
+  const password =
+    input.password ||
+    (existing?.encryptedPassword && existing.email === input.email
+      ? decryptSecret(existing.encryptedPassword)
+      : null)
+  if (!password) throw new Error('Enter your password')
   const authClient = createClient(input.url, input.anonKey, SIGN_IN_ONLY_OPTS)
   const { data, error } = await authClient.auth.signInWithPassword({
     email: input.email,
-    password: input.password
+    password
   })
   if (error || !data.session) {
     throw new Error(error?.message ?? 'Sign-in failed')
   }
-  const existing = await loadSyncConfig()
   const config: SyncConfig = {
     url: input.url,
     anonKey: input.anonKey,
@@ -481,7 +548,7 @@ export async function configure(
       accessToken: data.session.access_token,
       refreshToken: data.session.refresh_token
     },
-    encryptedPassword: encryptSecret(input.password) ?? undefined
+    encryptedPassword: encryptSecret(password) ?? undefined
   }
   await saveSyncConfig(config)
   stopSync()
