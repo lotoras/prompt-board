@@ -741,11 +741,19 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
       const p = slot?.pending.get(toolUseId)
       if (!slot || !p || p.kind !== 'plan') return false
       slot.pending.delete(toolUseId)
-      p.resolve(
-        decision.approve
-          ? { behavior: 'allow', updatedInput: p.input }
-          : { behavior: 'deny', message: decision.feedback }
-      )
+      if (decision.approve) {
+        // The work after an approved plan always runs in Full access. Without this update the CLI
+        // falls back to "default" (Ask) when the chat started in plan mode.
+        slot.mode = 'bypassPermissions'
+        deps.emitMeta(chatId, { permissionMode: slot.mode })
+        p.resolve({
+          behavior: 'allow',
+          updatedInput: p.input,
+          updatedPermissions: [{ type: 'setMode', mode: 'bypassPermissions', destination: 'session' }]
+        })
+      } else {
+        p.resolve({ behavior: 'deny', message: decision.feedback })
+      }
       deps.emitStatus(chatId, 'busy')
       return true
     },

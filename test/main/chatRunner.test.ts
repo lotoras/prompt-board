@@ -513,15 +513,28 @@ describe('chat/runner', () => {
       expect(runner.answerQuestion('unknown-chat', 'missing', null)).toBe(false)
     })
 
-    it('holds ExitPlanMode pending and allows on approve', async () => {
-      const q = await openChat()
+    it('holds ExitPlanMode pending and allows on approve, switching the work to Full access', async () => {
+      const q = await openChat(makeChat({ permissionMode: 'plan' }))
       const planInput = { plan: '1. do it' }
       const pending = q.options.canUseTool('ExitPlanMode', planInput, { toolUseID: 'tp' })
       await vi.waitFor(() => expect(emitStatus).toHaveBeenCalledWith('chat1', 'waiting', 'plan'))
       emitStatus.mockClear()
       expect(runner.decidePlan('chat1', 'tp', { approve: true })).toBe(true)
-      expect(await pending).toEqual({ behavior: 'allow', updatedInput: planInput })
+      // Without the setMode update the CLI leaves plan mode for "default" (Ask) when the chat
+      // started in plan mode.
+      expect(await pending).toEqual({
+        behavior: 'allow',
+        updatedInput: planInput,
+        updatedPermissions: [{ type: 'setMode', mode: 'bypassPermissions', destination: 'session' }]
+      })
       expect(emitStatus).toHaveBeenCalledWith('chat1', 'busy')
+      // The composer shows Full access at once.
+      expect(emitMeta).toHaveBeenCalledWith('chat1', { permissionMode: 'bypassPermissions' })
+      // The next tool call runs without a permission card.
+      expect(await q.options.canUseTool('Bash', { command: 'ls' }, { toolUseID: 'tb' })).toEqual({
+        behavior: 'allow',
+        updatedInput: { command: 'ls' }
+      })
     })
 
     it('denies ExitPlanMode with the feedback on reject', async () => {
