@@ -24,17 +24,11 @@ function useNow(): number {
   return now
 }
 
-/** Weekly windows with a future reset, grouped by reset minute ("7d" and "7d Fable" usually share one). */
-function weeklyResets(windows: RateLimitWindow[], now: number): { labels: string[]; at: number }[] {
-  const groups = new Map<number, { labels: string[]; at: number }>()
-  for (const w of windows) {
-    if (w.id === 'five_hour' || !w.resetsAt || w.resetsAt <= now) continue
-    const key = Math.round(w.resetsAt / 60000)
-    const g = groups.get(key) ?? { labels: [], at: w.resetsAt }
-    g.labels.push(LABELS[w.id])
-    groups.set(key, g)
-  }
-  return [...groups.values()].sort((a, b) => a.at - b.at)
+/** One labelled reset per weekly window with a future reset — "7d" and "7d Fable" each get a line. */
+function weeklyResets(windows: RateLimitWindow[], now: number): { id: RateLimitWindowId; at: number }[] {
+  return windows.flatMap((w) =>
+    w.id !== 'five_hour' && w.resetsAt && w.resetsAt > now ? [{ id: w.id, at: w.resetsAt }] : []
+  )
 }
 
 function MeterGroup({
@@ -61,8 +55,8 @@ function MeterGroup({
           <div key={w.id} className="rate-item">
             {i === firstWeekly &&
               resets.map((r) => (
-                <div key={r.at} className="rate-reset">
-                  {resets.length > 1 ? `${r.labels.join(' · ')} resets` : 'Weekly resets'}{' '}
+                <div key={r.id} className="rate-reset">
+                  {`${LABELS[r.id]} resets`}{' '}
                   <b>{formatResetDay(r.at)}</b>
                   <span className="num">{` · in ${formatCountdown(r.at, now)}`}</span>
                 </div>

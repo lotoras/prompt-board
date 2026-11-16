@@ -86,7 +86,7 @@ describe('RateMeters', () => {
     expect(screen.getByTitle('Resets in 2h 14m')).toBeTruthy()
   })
 
-  it('shows the weekly reset day and countdown once when 7d and 7d Fable share it', () => {
+  it('shows a labelled reset line for both 7d and 7d Fable even when they share a reset', () => {
     const at = NOW + (2 * 1440 + 4 * 60) * 60000
     seed({
       available: true,
@@ -99,10 +99,11 @@ describe('RateMeters', () => {
     })
     const { container } = render(<RateMeters />)
     const lines = container.querySelectorAll('.rate-reset')
-    expect(lines).toHaveLength(1)
-    expect(lines[0].textContent).toBe(`Weekly resets ${formatResetDay(at)} · in 2d 4h`)
-    // The line sits right above the first weekly row.
-    expect(lines[0].nextElementSibling?.textContent).toContain('7d')
+    expect(lines).toHaveLength(2)
+    expect(lines[0].textContent).toBe(`7d resets ${formatResetDay(at)} · in 2d 4h`)
+    expect(lines[1].textContent).toBe(`7d Fable resets ${formatResetDay(at + 20_000)} · in 2d 4h`)
+    // The lines sit right above the first weekly row.
+    expect(lines[1].nextElementSibling?.textContent).toContain('7d')
   })
 
   it('shows one labelled line per distinct weekly reset', () => {
