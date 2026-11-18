@@ -12,6 +12,7 @@ class FakeQuery {
   private finished = false
 
   interrupt = vi.fn(async () => {})
+  cancelAsyncMessage = vi.fn(async (_uuid: string) => true)
   setModel = vi.fn(async () => {})
   setPermissionMode = vi.fn(async () => {})
   applyFlagSettings = vi.fn(async () => {})
@@ -276,5 +277,32 @@ describe('chat/runner message queue', () => {
     expect(userTexts()).toHaveLength(before)
     const last = queuedCalls().pop() as { text: string }[]
     expect(last.map((e) => e.text)).toEqual(['second', 'third'])
+  })
+  it('cancelQueued drops a waiting message: SDK cancel, queue empty, never shown', async () => {
+    const q = await working()
+    const id = await queueSecond(q)
+    await expect(runner.cancelQueued('chat1', id)).resolves.toBe(true)
+    expect(q.cancelAsyncMessage).toHaveBeenCalledWith(id)
+    expect(emitMeta).toHaveBeenLastCalledWith('chat1', { queued: [] })
+    q.emit({ type: 'result', subtype: 'success', is_error: false })
+    await vi.waitFor(() => expect(emitStatus).toHaveBeenCalledWith('chat1', 'idle'))
+    expect(userTexts()).toEqual(['first'])
+  })
+
+  it('cancelQueued keeps the entry when Claude already took the message', async () => {
+    const q = await working()
+    const id = await queueSecond(q)
+    q.cancelAsyncMessage.mockResolvedValueOnce(false)
+    await expect(runner.cancelQueued('chat1', id)).resolves.toBe(false)
+    expect(emitMeta).not.toHaveBeenCalledWith('chat1', { queued: [] })
+    echo(q, id, 'second')
+    await vi.waitFor(() => expect(userTexts()).toContain('second'))
+  })
+
+  it('cancelQueued for an unknown message or chat does not call the SDK', async () => {
+    const q = await working()
+    await expect(runner.cancelQueued('chat1', 'nope')).resolves.toBe(false)
+    await expect(runner.cancelQueued('other', 'nope')).resolves.toBe(false)
+    expect(q.cancelAsyncMessage).not.toHaveBeenCalled()
   })
 })

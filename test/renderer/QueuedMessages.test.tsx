@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { makeChat } from './chatFixtures'
 
-const { chat } = vi.hoisted(() => ({ chat: { interrupt: vi.fn() } }))
+const { chat } = vi.hoisted(() => ({ chat: { interrupt: vi.fn(), cancelQueued: vi.fn() } }))
 vi.mock('../../src/renderer/src/lib/api', () => ({ api: { chat } }))
 
 import { QueuedMessages } from '../../src/renderer/src/features/chat/items/QueuedMessages'
@@ -12,11 +12,13 @@ const q = (id: string, text: string) => ({ id, text, attachments: [] })
 
 beforeEach(() => {
   chat.interrupt.mockResolvedValue(undefined)
+  chat.cancelQueued.mockResolvedValue(true)
 })
 
 afterEach(() => {
   cleanup()
   chat.interrupt.mockReset()
+  chat.cancelQueued.mockReset()
 })
 
 describe('QueuedMessages', () => {
@@ -51,5 +53,15 @@ describe('QueuedMessages', () => {
     expect(chat.interrupt).toHaveBeenCalledTimes(1)
     expect(chat.interrupt).toHaveBeenCalledWith('chat-1')
     expect(btn.disabled).toBe(true)
+  })
+  it('Undo sits beside Stop and send now and cancels every waiting message', () => {
+    render(<QueuedMessages chat={makeChat({ queued: [q('a', 'x'), q('b', 'y')] })} />)
+    const buttons = screen.getAllByRole('button').map((b) => b.textContent)
+    expect(buttons).toEqual(['Undo', 'Stop and send now'])
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(chat.cancelQueued).toHaveBeenCalledTimes(2)
+    expect(chat.cancelQueued).toHaveBeenCalledWith('chat-1', 'a')
+    expect(chat.cancelQueued).toHaveBeenCalledWith('chat-1', 'b')
+    expect(chat.interrupt).not.toHaveBeenCalled()
   })
 })

@@ -33,6 +33,8 @@ const PARSED_SYSTEM_EVENTS = new Set([
 
 export interface SdkQuery extends AsyncIterable<SdkMessage> {
   interrupt(): Promise<void>
+  /** Drops a message Claude has not taken yet; false once it is already on its way. */
+  cancelAsyncMessage(uuid: string): Promise<boolean>
   setModel(m?: string): Promise<void>
   applyFlagSettings(s: Record<string, unknown>): Promise<void>
   getContextUsage(o?: unknown): Promise<{ totalTokens: number; maxTokens: number }>
@@ -69,6 +71,8 @@ export interface ChatRunner {
     opts?: { interrupt?: boolean }
   ): Promise<void>
   interrupt(chatId: string): Promise<void>
+  /** Undo for a queued message. False when Claude already has it (it then shows as sent). */
+  cancelQueued(chatId: string, messageId: string): Promise<boolean>
   answerQuestion(chatId: string, toolUseId: string, answers: Record<string, string> | null): boolean
   decidePlan(chatId: string, toolUseId: string, decision: PlanDecision): boolean
   decidePermission(chatId: string, toolUseId: string, decision: PermissionDecision): boolean
@@ -720,6 +724,17 @@ export function createChatRunner(deps: RunnerDeps): ChatRunner {
       if (slot.working) slot.stopRequested = true
       denyPending(slot, { behavior: 'deny', message: 'Interrupted', interrupt: true })
       await slot.query.interrupt()
+    },
+
+    async cancelQueued(chatId, messageId) {
+      const slot = slots.get(chatId)
+      if (!slot?.queued.some((e) => e.view.id === messageId)) return false
+      if (!(await slot.query.cancelAsyncMessage(messageId))) return false
+      const at = slot.queued.findIndex((e) => e.view.id === messageId)
+      if (at < 0) return false
+      slot.queued.splice(at, 1)
+      publishQueue(slot)
+      return true
     },
 
     answerQuestion(chatId, toolUseId, answers) {

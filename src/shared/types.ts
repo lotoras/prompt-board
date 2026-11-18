@@ -681,6 +681,7 @@ export const IPC_CHANNELS = {
     update: 'chat:update',
     send: 'chat:send',
     interrupt: 'chat:interrupt',
+    cancelQueued: 'chat:cancelQueued',
     answer: 'chat:answer',
     decidePlan: 'chat:decidePlan',
     close: 'chat:close',
@@ -778,6 +779,8 @@ export interface Api {
     update(chatId: string, patch: ChatPatch): Promise<ChatMeta>
     send(input: ChatSendInput): Promise<void>
     interrupt(chatId: string): Promise<void>
+    /** Undo a queued message so it is never sent. False when Claude already took it. */
+    cancelQueued(chatId: string, messageId: string): Promise<boolean>
     /** `answers` null = the user skipped the question. */
     answer(chatId: string, toolUseId: string, answers: Record<string, string> | null): Promise<void>
     decidePlan(chatId: string, toolUseId: string, decision: PlanDecision): Promise<void>

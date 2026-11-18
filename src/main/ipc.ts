@@ -176,6 +176,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IPC_CHANNELS.chat.interrupt, (_event, chatId: string) =>
     chatService.interrupt(chatId)
   )
+  ipcMain.handle(IPC_CHANNELS.chat.cancelQueued, (_event, chatId: string, messageId: string) =>
+    chatService.cancelQueued(chatId, messageId)
+  )
   ipcMain.handle(
     IPC_CHANNELS.chat.answer,
     (_event, chatId: string, toolUseId: string, answers: Record<string, string> | null) =>

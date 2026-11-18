@@ -124,6 +124,8 @@ const api: Api = {
       ipcRenderer.invoke(IPC_CHANNELS.chat.update, chatId, patch),
     send: (input: ChatSendInput) => ipcRenderer.invoke(IPC_CHANNELS.chat.send, input),
     interrupt: (chatId: string) => ipcRenderer.invoke(IPC_CHANNELS.chat.interrupt, chatId),
+    cancelQueued: (chatId: string, messageId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.chat.cancelQueued, chatId, messageId),
     answer: (chatId: string, toolUseId: string, answers: Record<string, string> | null) =>
       ipcRenderer.invoke(IPC_CHANNELS.chat.answer, chatId, toolUseId, answers),
     decidePlan: (chatId: string, toolUseId: string, decision: PlanDecision) =>

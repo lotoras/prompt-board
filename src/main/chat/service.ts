@@ -743,6 +743,10 @@ async function interrupt(chatId: string): Promise<void> {
   await need().runner.interrupt(chatId)
 }
 
+function cancelQueued(chatId: string, messageId: string): Promise<boolean> {
+  return need().runner.cancelQueued(chatId, messageId)
+}
+
 async function answer(
   chatId: string,
   toolUseId: string,
@@ -1001,6 +1005,7 @@ export const chatService = {
   update,
   send,
   interrupt,
+  cancelQueued,
   answer,
   decidePlan,
   decidePermission,
