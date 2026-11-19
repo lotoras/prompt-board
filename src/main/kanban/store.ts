@@ -8,8 +8,10 @@ import {
   type Board,
   type KanbanCard,
   type KanbanMutation,
-  type KanbanState
+  type KanbanState,
+  type Project
 } from '../../shared/types'
+import { pathKey } from '../../shared/pathKey'
 import { readJsonFile, writeJsonFile } from '../lib/atomicWrite'
 import { enqueueCard, isApplyingRemote, nextTimestamp } from '../sync/engine'
 
@@ -197,6 +199,32 @@ export async function mutateKanban(mutation: KanbanMutation): Promise<KanbanStat
     await enqueueCard(affectedCard, deletedAtMs)
   }
   return state
+}
+
+/**
+ * Cards made under one of a project's other paths (e.g. on the PC where it lives in another
+ * folder) move onto that project, so its board and labels stay one. Synced like any edit.
+ */
+export async function rehomeCards(projects: Project[]): Promise<void> {
+  const owner = new Map<string, string>()
+  for (const p of projects) {
+    for (const other of p.otherPaths ?? []) owner.set(pathKey(other), p.projectKey)
+  }
+  if (owner.size === 0) return
+  const state = await load()
+  const moved: KanbanCard[] = []
+  for (const card of state.cards) {
+    const target = owner.get(card.projectKey)
+    if (!target || target === card.projectKey) continue
+    card.projectKey = target
+    card.updatedAt = nextTimestamp()
+    moved.push(card)
+  }
+  if (moved.length === 0) return
+  for (const card of moved) ensureBoard(state, card.projectKey)
+  await persist()
+  broadcastChanged(state)
+  for (const card of moved) await enqueueCard(card)
 }
 
 /** Applies a remote card row as-is (used by the sync engine's LWW merge; never enqueues). */

@@ -479,4 +479,25 @@ describe('kanban/store', () => {
       expect(card.dueDate).toBe('2026-08-20')
     })
   })
+  describe('rehomeCards', () => {
+    it("moves cards from a project's other path onto the project and leaves others alone", async () => {
+      const { getBoards, mutateKanban, rehomeCards } = await loadStore()
+      const base = { columnId: 'todo', body: '', tags: [], order: 'a0' }
+      await mutateKanban({ type: 'createCard', card: { ...base, title: 'there', projectKey: 'c:/www/cms' } })
+      await mutateKanban({ type: 'createCard', card: { ...base, title: 'other', projectKey: 'c:/www/cms-old' } })
+      await rehomeCards([
+        {
+          projectKey: 'c:/www/cms-local',
+          name: 'Websites',
+          basePath: 'C:/www/cms-local',
+          otherPaths: ['C:/www/cms'],
+          createdAt: 0,
+          updatedAt: 0
+        }
+      ])
+      const byTitle = new Map((await getBoards()).cards.map((c) => [c.title, c.projectKey]))
+      expect(byTitle.get('there')).toBe('c:/www/cms-local')
+      expect(byTitle.get('other')).toBe('c:/www/cms-old')
+    })
+  })
 })

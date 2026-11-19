@@ -24,7 +24,7 @@ import {
 } from './config'
 import { decryptSecret, encryptSecret } from './secret'
 import { applyRemoteProject, deleteProject, listProjects } from '../projects/store'
-import { applyRemoteCard, deleteCardById, getBoards } from '../kanban/store'
+import { applyRemoteCard, deleteCardById, getBoards, rehomeCards } from '../kanban/store'
 
 interface RemoteProjectRow {
   project_key: string
@@ -255,6 +255,7 @@ async function mergeRemoteProject(row: RemoteProjectRow, myDeviceId: string): Pr
   } finally {
     applyingRemote = false
   }
+  await rehomeCards(await listProjects())
 }
 
 async function mergeRemoteCard(row: RemoteCardRow, myDeviceId: string): Promise<void> {
@@ -273,6 +274,7 @@ async function mergeRemoteCard(row: RemoteCardRow, myDeviceId: string): Promise<
   } finally {
     applyingRemote = false
   }
+  await rehomeCards(await listProjects())
 }
 
 async function unionPushLocal(

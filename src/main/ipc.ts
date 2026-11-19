@@ -18,7 +18,7 @@ import { listAccounts } from './accounts'
 import { describe, pick, saveImage } from './chat/attachments'
 import { chatService } from './chat/service'
 import { gitChangesAll, gitInfo, listBranches } from './git/git'
-import { mutateKanban, getBoards } from './kanban/store'
+import { mutateKanban, getBoards, rehomeCards } from './kanban/store'
 import {
   createProject,
   deleteProject,
@@ -70,6 +70,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
 
   ipcMain.handle(IPC_CHANNELS.projects.create, async (_event, input: ProjectInput) => {
     const project = await createProject(input)
+    await rehomeCards(await listProjects())
     triggerSnapshotRefresh(getWindow)
     return project
   })
@@ -78,6 +79,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     IPC_CHANNELS.projects.update,
     async (_event, projectKey: string, patch: Partial<ProjectInput>) => {
       const project = await updateProject(projectKey, patch)
+      await rehomeCards(await listProjects())
       triggerSnapshotRefresh(getWindow)
       return project
     }

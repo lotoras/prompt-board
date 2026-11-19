@@ -4,8 +4,8 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { chatService, initChatService } from './chat/service'
 import { registerIpcHandlers } from './ipc'
-import { setWindowGetter as setKanbanWindowGetter } from './kanban/store'
-import { setWindowGetter as setProjectsWindowGetter } from './projects/store'
+import { rehomeCards, setWindowGetter as setKanbanWindowGetter } from './kanban/store'
+import { listProjects, setWindowGetter as setProjectsWindowGetter } from './projects/store'
 import { killAllPtys } from './pty/manager'
 import { startSessionsWatcher, stopSessionsWatcher } from './sessions/watcher'
 import { startSync, stopSync } from './sync/engine'
@@ -125,6 +125,10 @@ if (gotLock) {
     initChatService(() => mainWindow)
 
     startSessionsWatcher(() => mainWindow)
+    // Cards made under another path of a project (e.g. on another PC) join that project.
+    void listProjects()
+      .then(rehomeCards)
+      .catch((err) => console.error('failed to re-home cards', err))
     void startSync(() => mainWindow)
 
     app.on('activate', function () {
