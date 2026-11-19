@@ -1,11 +1,11 @@
 import { randomUUID } from 'crypto'
 import type { BrowserWindow } from 'electron'
 import type { IPty } from 'node-pty'
-import { pathKey } from '../../shared/pathKey'
+import { pathKey, projectPaths, projectRootOf } from '../../shared/pathKey'
 import { IPC_CHANNELS } from '../../shared/types'
 import type { PtySpawnInput, PtySpawnResult } from '../../shared/types'
 import { accountLauncher } from '../accounts'
-import { assertProjectDirectory, listProjects } from '../projects/store'
+import { assertProjectDirectory, listProjects, localProjectPath } from '../projects/store'
 import {
   clearPendingSpawn,
   isPendingSpawn,
@@ -88,26 +88,25 @@ export async function spawnPty(
     throw new Error(`Project has no base path to spawn a terminal in: ${input.projectKey}`)
   }
 
+  const local = localProjectPath(project)
   try {
-    await assertProjectDirectory(project.basePath)
+    await assertProjectDirectory(local)
   } catch (err) {
     throw new Error(`Cannot start a terminal for "${project.name}": ${(err as Error).message}`)
   }
 
-  let cwd = project.basePath
-  if (input.cwd) {
-    const base = pathKey(project.basePath)
-    const wanted = pathKey(input.cwd)
-    if (wanted !== base && !wanted.startsWith(`${base}/.claude/worktrees/`)) {
+  let cwd = local
+  // Asking for one of the project's own folders (often its base path, which may be another
+  // PC's checkout) opens the folder that exists here; a worktree path is used as given.
+  if (input.cwd && !projectPaths(project).some((p) => pathKey(p) === pathKey(input.cwd!))) {
+    if (!projectRootOf(project, input.cwd)) {
       throw new Error(`Terminal folder is outside project "${project.name}": ${input.cwd}`)
     }
     cwd = input.cwd
-    if (cwd !== project.basePath) {
-      try {
-        await assertProjectDirectory(cwd)
-      } catch (err) {
-        throw new Error(`Cannot start a terminal in "${cwd}": ${(err as Error).message}`)
-      }
+    try {
+      await assertProjectDirectory(cwd)
+    } catch (err) {
+      throw new Error(`Cannot start a terminal in "${cwd}": ${(err as Error).message}`)
     }
   }
 

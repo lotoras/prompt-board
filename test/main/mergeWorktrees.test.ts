@@ -88,3 +88,23 @@ describe('applyStatusOverlay', () => {
     expect(applyStatusOverlay([a], new Map())).toEqual([a])
   })
 })
+
+describe('mergeSessions other paths', () => {
+  const project = makeProject({ otherPaths: ['D:/laragon/www/cms'] })
+
+  it('groups sessions in an other path (and its worktrees) under the project', () => {
+    const here = makeSession({ sessionId: 'here' })
+    const there = makeSession({ sessionId: 'there', cwd: 'd:/laragon/www/cms/' })
+    const wt = makeSession({ sessionId: 'wt', cwd: 'D:/laragon/www/cms/.claude/worktrees/x' })
+    const result = mergeSessions([project], [here, there, wt])
+    expect(result.projects).toHaveLength(1)
+    expect(result.projects[0].projectKey).toBe(project.projectKey)
+    expect(result.projects[0].sessions.map((s) => s.sessionId)).toEqual(['here', 'there', 'wt'])
+  })
+
+  it('leaves a sibling folder with a shared prefix alone', () => {
+    const other = makeSession({ cwd: 'D:/laragon/www/cms-old' })
+    const result = mergeSessions([project], [other])
+    expect(result.projects).toHaveLength(2)
+  })
+})

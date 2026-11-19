@@ -19,7 +19,13 @@ import { describe, pick, saveImage } from './chat/attachments'
 import { chatService } from './chat/service'
 import { gitChangesAll, gitInfo, listBranches } from './git/git'
 import { mutateKanban, getBoards } from './kanban/store'
-import { createProject, deleteProject, listProjects, updateProject } from './projects/store'
+import {
+  createProject,
+  deleteProject,
+  listProjects,
+  localProjectPath,
+  updateProject
+} from './projects/store'
 import { attachPty, killPty, resizePty, spawnPty, writePty } from './pty/manager'
 import { loadPersisted, savePersisted } from './pty/persistence'
 import { listPtyBindings } from './pty/reconcile'
@@ -228,7 +234,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   )
   ipcMain.handle(IPC_CHANNELS.git.branches, async (_event, projectKey: string) => {
     const project = (await listProjects()).find((p) => p.projectKey === projectKey)
-    return project?.basePath ? listBranches(project.basePath) : []
+    return project?.basePath ? listBranches(localProjectPath(project)) : []
   })
 
   ipcMain.handle(IPC_CHANNELS.attachments.pick, () => pick(getWindow))

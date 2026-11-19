@@ -1,7 +1,7 @@
 import { app, BrowserWindow } from 'electron'
-import { promises as fs } from 'fs'
+import { existsSync, promises as fs } from 'fs'
 import { join } from 'path'
-import { pathKey } from '../../shared/pathKey'
+import { pathKey, projectPaths } from '../../shared/pathKey'
 import { IPC_CHANNELS } from '../../shared/types'
 import type { Project, ProjectInput } from '../../shared/types'
 import { readJsonFile, writeJsonFile } from '../lib/atomicWrite'
@@ -52,12 +52,48 @@ export async function assertProjectDirectory(basePath: string): Promise<void> {
   }
 }
 
+/** Trimmed, de-duplicated other paths (never the base path itself); undefined when none. */
+function cleanOtherPaths(basePath: string, otherPaths: string[] | undefined): string[] | undefined {
+  const seen = new Set([pathKey(basePath)])
+  const out: string[] = []
+  for (const raw of otherPaths ?? []) {
+    const path = raw.trim()
+    if (!path || seen.has(pathKey(path))) continue
+    seen.add(pathKey(path))
+    out.push(path)
+  }
+  return out.length > 0 ? out : undefined
+}
+
+/**
+ * At least one of the project's folders must exist on this device — the others can be
+ * the same project's checkout on another PC.
+ */
+async function assertSomeProjectDirectory(paths: string[]): Promise<void> {
+  let first: unknown
+  for (const path of paths) {
+    try {
+      await assertProjectDirectory(path)
+      return
+    } catch (err) {
+      first ??= err
+    }
+  }
+  throw first
+}
+
+/** The project's folder on this device: the first of its paths that exists, else the base path. */
+export function localProjectPath(project: Project): string {
+  return projectPaths(project).find((p) => existsSync(p)) ?? project.basePath
+}
+
 export async function listProjects(): Promise<Project[]> {
   return load()
 }
 
 export async function createProject(input: ProjectInput): Promise<Project> {
-  await assertProjectDirectory(input.basePath)
+  const otherPaths = cleanOtherPaths(input.basePath, input.otherPaths)
+  await assertSomeProjectDirectory([input.basePath, ...(otherPaths ?? [])])
   const projects = await load()
   const projectKey = pathKey(input.basePath)
   if (projects.some((p) => p.projectKey === projectKey)) {
@@ -68,6 +104,7 @@ export async function createProject(input: ProjectInput): Promise<Project> {
     projectKey,
     name: input.name,
     basePath: input.basePath,
+    ...(otherPaths ? { otherPaths } : {}),
     createdAt: now,
     updatedAt: now
   }
@@ -87,16 +124,20 @@ export async function updateProject(
   if (index === -1) {
     throw new Error(`Project not found: ${projectKey}`)
   }
-  if (patch.basePath !== undefined) {
-    await assertProjectDirectory(patch.basePath)
-  }
   const existing = projects[index]
+  const basePath = patch.basePath ?? existing.basePath
+  const otherPaths = cleanOtherPaths(basePath, patch.otherPaths ?? existing.otherPaths)
+  if (patch.basePath !== undefined || patch.otherPaths !== undefined) {
+    await assertSomeProjectDirectory([basePath, ...(otherPaths ?? [])])
+  }
   const updated: Project = {
     ...existing,
     ...patch,
     projectKey: patch.basePath ? pathKey(patch.basePath) : existing.projectKey,
     updatedAt: nextTimestamp()
   }
+  delete updated.otherPaths
+  if (otherPaths) updated.otherPaths = otherPaths
   projects[index] = updated
   await persist()
   broadcastChanged()

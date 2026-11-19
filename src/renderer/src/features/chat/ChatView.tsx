@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { FileDiff, Monitor, SquareKanban, Terminal } from 'lucide-react'
+import { projectRootOf } from '../../../../shared/pathKey'
 import { statusTone } from '../../../../shared/types'
 import type { ChatItem, ChatMeta } from '../../../../shared/types'
 import { formatRelativeTime, formatTokens } from '../../lib/format'
@@ -74,9 +75,10 @@ export function ChatView({ chat }: { chat: ChatMeta }): React.JSX.Element {
       s.projectView(chat.projectKey)?.name ??
       chat.projectKey
   )
-  const projectPath = useStore(
-    (s) => s.projects.find((p) => p.projectKey === chat.projectKey)?.basePath ?? chat.cwd
-  )
+  const projectPath = useStore((s) => {
+    const project = s.projects.find((p) => p.projectKey === chat.projectKey)
+    return (project && projectRootOf(project, chat.cwd)) ?? project?.basePath ?? chat.cwd
+  })
   const card = useStore((s) => s.boards.cards.find((c) => c.id === chat.cardId))
   const setEditingCardId = useStore((s) => s.setEditingCardId)
   const openInTui = useStore((s) => s.openInTui)

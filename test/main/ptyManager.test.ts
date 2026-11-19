@@ -101,7 +101,8 @@ vi.mock('../../src/main/projects/store', () => ({
       updatedAt: 0
     }
   ]),
-  assertProjectDirectory
+  assertProjectDirectory,
+  localProjectPath: (p: { basePath: string }) => p.basePath
 }))
 
 const MAX_BUFFER = 256 * 1024

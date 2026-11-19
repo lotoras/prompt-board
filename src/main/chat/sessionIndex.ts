@@ -145,8 +145,9 @@ function worktreeOf(key: string, projectKey: string): string | undefined {
   return slug ? `.claude/worktrees/${slug}` : undefined
 }
 
+/** Past sessions in a project's folder(s) — `projectKeys` covers its other paths too. */
 export async function listProjectSessions(
-  projectKey: string,
+  projectKeys: string | string[],
   opts: { projectsDir?: string; limit?: number; offset?: number } = {}
 ): Promise<Indexed[]> {
   const roots = opts.projectsDir ? [opts.projectsDir] : [projectsDir(1), projectsDir(2)]
@@ -187,8 +188,10 @@ export async function listProjectSessions(
     const s = await summarizeFile(f.path, f.mtimeMs, f.size)
     if (!s?.cwd || !s.title) continue
     const key = pathKey(s.cwd)
-    const worktreeRel = worktreeOf(key, projectKey)
-    if (key !== projectKey && !worktreeRel) continue
+    const roots = typeof projectKeys === 'string' ? [projectKeys] : projectKeys
+    let worktreeRel: string | undefined
+    for (const root of roots) worktreeRel ??= worktreeOf(key, root)
+    if (!roots.includes(key) && !worktreeRel) continue
     if (toSkip > 0) {
       toSkip--
       continue

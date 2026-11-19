@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pathKey } from '../../src/shared/pathKey'
+import { pathKey, projectRootOf } from '../../src/shared/pathKey'
 
 describe('pathKey', () => {
   describe('happy path', () => {
@@ -45,5 +45,22 @@ describe('pathKey', () => {
         expect(pathKey(once)).toBe(once)
       }
     })
+  })
+})
+
+describe('projectRootOf', () => {
+  const project = { basePath: 'C:/laragon/www/cms-local', otherPaths: ['C:/laragon/www/cms'] }
+
+  it('returns the matching project path for the folder or one of its worktrees', () => {
+    expect(projectRootOf(project, 'c:/laragon/www/cms-local')).toBe('C:/laragon/www/cms-local')
+    expect(projectRootOf(project, 'C:/laragon/www/cms/')).toBe('C:/laragon/www/cms')
+    expect(projectRootOf(project, 'C:/laragon/www/cms/.claude/worktrees/a/b')).toBe(
+      'C:/laragon/www/cms'
+    )
+  })
+
+  it('is undefined outside the project', () => {
+    expect(projectRootOf(project, 'C:/laragon/www/cms-old')).toBeUndefined()
+    expect(projectRootOf(project, 'C:/laragon/www/cms/src')).toBeUndefined()
   })
 })

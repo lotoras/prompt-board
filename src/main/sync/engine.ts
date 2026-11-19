@@ -30,6 +30,8 @@ interface RemoteProjectRow {
   project_key: string
   name: string
   base_path: string
+  /** Absent until the `project_other_paths` migration has run. */
+  other_paths?: string[] | null
   created_at: string
   updated_at: string
   deleted_at: string | null
@@ -119,6 +121,7 @@ function projectToRow(project: Project, deviceId: string, deletedAtMs?: number):
     project_key: project.projectKey,
     name: project.name,
     base_path: project.basePath,
+    other_paths: project.otherPaths ?? [],
     created_at: new Date(project.createdAt).toISOString(),
     updated_at: new Date(project.updatedAt).toISOString(),
     deleted_at: deletedAtMs ? new Date(deletedAtMs).toISOString() : null,
@@ -131,6 +134,7 @@ function rowToProject(row: RemoteProjectRow): Project {
     projectKey: row.project_key,
     name: row.name,
     basePath: row.base_path,
+    ...(row.other_paths?.length ? { otherPaths: row.other_paths } : {}),
     createdAt: new Date(row.created_at).getTime(),
     updatedAt: new Date(row.updated_at).getTime()
   }
@@ -216,7 +220,13 @@ async function flush(): Promise<void> {
   }
   try {
     const onConflict = op.table === 'projects' ? 'user_id,project_key' : 'user_id,id'
-    const { error } = await client.from(op.table).upsert(op.row, { onConflict })
+    let { error } = await client.from(op.table).upsert(op.row, { onConflict })
+    // Until the `project_other_paths` migration has run remotely, sync projects without it.
+    if (error && op.table === 'projects' && /other_paths/.test(error.message ?? '')) {
+      const row = { ...op.row }
+      delete row.other_paths
+      ;({ error } = await client.from(op.table).upsert(row, { onConflict }))
+    }
     if (error) throw error
     await saveOutbox({ ...outbox, ops: rest })
     backoffMs = MIN_BACKOFF_MS

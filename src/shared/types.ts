@@ -83,6 +83,8 @@ export interface Project {
   projectKey: string
   name: string
   basePath: string
+  /** More folders that are the same project (e.g. its checkout on another PC). */
+  otherPaths?: string[]
   createdAt: number
   updatedAt: number
 }
@@ -90,6 +92,7 @@ export interface Project {
 export interface ProjectInput {
   name: string
   basePath: string
+  otherPaths?: string[]
 }
 
 // ---------------------------------------------------------------------------

@@ -35,6 +35,10 @@ function ProjectEditorForm({
         : ''
   )
 
+  const [otherPaths, setOtherPaths] = useState(
+    modal.mode === 'edit' ? (existing?.otherPaths ?? []).join('\n') : ''
+  )
+
   const handleBrowse = async (): Promise<void> => {
     const picked = await api.projects.pickDirectory()
     if (picked) setBasePath(picked)
@@ -43,11 +47,15 @@ function ProjectEditorForm({
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
     if (!name.trim() || !basePath.trim()) return
+    const others = otherPaths
+      .split(/\r?\n/)
+      .map((p) => p.trim())
+      .filter(Boolean)
 
     if (modal.mode === 'edit') {
-      await updateProject(modal.projectKey, { name, basePath })
+      await updateProject(modal.projectKey, { name, basePath, otherPaths: others })
     } else {
-      await createProject({ name, basePath })
+      await createProject({ name, basePath, otherPaths: others })
     }
     onClose()
   }
@@ -101,6 +109,18 @@ function ProjectEditorForm({
                 Browse…
               </button>
             </div>
+          </div>
+
+          <div className="field">
+            <label htmlFor="project-other-paths">Other paths</label>
+            <textarea
+              id="project-other-paths"
+              rows={2}
+              style={{ minHeight: 60 }}
+              placeholder="Same project in another folder, e.g. on another PC — one per line"
+              value={otherPaths}
+              onChange={(e) => setOtherPaths(e.target.value)}
+            />
           </div>
         </div>
 

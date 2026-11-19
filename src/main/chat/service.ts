@@ -11,7 +11,7 @@ import {
   staleAnswerText,
   stalePlanText
 } from '../../shared/chat'
-import { pathKey } from '../../shared/pathKey'
+import { pathKey, projectPaths, projectRootOf } from '../../shared/pathKey'
 import {
   IPC_CHANNELS,
   type ClaudeAccountId,
@@ -39,7 +39,7 @@ import {
 import { accountOfPath, listAccounts } from '../accounts'
 import { getBoards, mutateKanban } from '../kanban/store'
 import { gitInfo, prepareWorkspace } from '../git/git'
-import { assertProjectDirectory, listProjects } from '../projects/store'
+import { assertProjectDirectory, listProjects, localProjectPath } from '../projects/store'
 import { killPty, spawnPty } from '../pty/manager'
 import type { StatusOverlayEntry } from '../sessions/merge'
 import { stopSessionProcess } from '../sessions/stopSession'
@@ -550,7 +550,8 @@ async function probeRate(): Promise<void> {
   const c = ctx
   if (!c) return
   await c.ready
-  const cwd = (await listProjects().catch(() => []))[0]?.basePath ?? os.homedir()
+  const first = (await listProjects().catch(() => []))[0]
+  const cwd = first ? localProjectPath(first) : os.homedir()
   for (const { id, available } of listAccounts()) {
     if (!available) continue
     const resp = await c.runner.probeUsage(cwd, id)
@@ -600,7 +601,7 @@ async function create(input: ChatCreateInput): Promise<ChatCreateResult> {
     throw new Error(`Unknown project: ${input.projectKey}`)
   }
 
-  let cwd = project?.basePath ?? ''
+  let cwd = project ? localProjectPath(project) : ''
   let resumed: TranscriptMeta | undefined
   let account: ClaudeAccountId = input.account ?? 1
   if (input.resumeSessionId) {
@@ -615,7 +616,8 @@ async function create(input: ChatCreateInput): Promise<ChatCreateResult> {
     cwd = live ?? resumed?.cwd ?? linked ?? cwd
   }
   if (!cwd) throw new Error(`Unknown project: ${input.projectKey}`)
-  const worktreeMark = `${input.projectKey}/.claude/worktrees/`
+  const root = project ? projectRootOf(project, cwd) : undefined
+  const worktreeMark = `${root ? pathKey(root) : input.projectKey}/.claude/worktrees/`
   const worktreeSlugOfCwd = pathKey(cwd).startsWith(worktreeMark)
     ? pathKey(cwd).slice(worktreeMark.length).split('/')[0]
     : undefined
@@ -701,7 +703,7 @@ async function send(input: ChatSendInput): Promise<void> {
     await assertProjectDirectory(chat.cwd)
     if (!wasStarted) {
       const project = (await listProjects()).find((p) => p.projectKey === chat.projectKey)
-      const base = project?.basePath ?? chat.cwd
+      const base = project ? localProjectPath(project) : chat.cwd
       const plan = input.workspace
       if (plan && (plan.newWorktree || plan.newBranch)) {
         const ws = await prepareWorkspace(base, plan)
@@ -900,7 +902,9 @@ async function rewind(input: ChatRewindInput): Promise<void> {
 
 async function listSessions(projectKey: string, opts?: { offset?: number }): Promise<PastSession[]> {
   const c = await ready()
-  const past = await listProjectSessions(projectKey, opts)
+  const project = (await listProjects()).find((p) => p.projectKey === projectKey)
+  const keys = project ? projectPaths(project).map(pathKey) : [projectKey]
+  const past = await listProjectSessions(keys, opts)
   const open = new Map(c.state.chats.map((chat) => [chat.sessionId, chat.chatId]))
   return past.map((s) => {
     const openChatId = open.get(s.sessionId)

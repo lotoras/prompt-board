@@ -1,4 +1,4 @@
-import { pathKey } from '../../shared/pathKey'
+import { pathKey, projectRootOf } from '../../shared/pathKey'
 import { sessionNeedsAttention } from '../../shared/types'
 import type {
   Project,
@@ -13,8 +13,6 @@ export interface StatusOverlayEntry {
   waitingFor?: string
   statusUpdatedAt: number
 }
-
-const WORKTREES_SEGMENT = '/.claude/worktrees/'
 
 /** Pure: replace status fields of sessions whose sessionId has an overlay entry. */
 export function applyStatusOverlay(
@@ -59,12 +57,12 @@ export function mergeSessions(
   manualProjects: Project[],
   liveSessions: SessionInfo[]
 ): SessionsSnapshot {
-  const manualKeys = manualProjects.map((p) => p.projectKey)
   const grouped = new Map<string, SessionInfo[]>()
   for (const session of liveSessions) {
-    let key = pathKey(session.cwd)
-    const owner = manualKeys.find((k) => key.startsWith(k + WORKTREES_SEGMENT))
-    if (owner) key = owner
+    // A session in a project's folder, one of its other paths, or a worktree of either
+    // belongs to that project.
+    const owner = manualProjects.find((p) => projectRootOf(p, session.cwd) !== undefined)
+    const key = owner?.projectKey ?? pathKey(session.cwd)
     const bucket = grouped.get(key)
     if (bucket) bucket.push(session)
     else grouped.set(key, [session])
