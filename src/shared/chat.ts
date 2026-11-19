@@ -8,7 +8,8 @@ import type {
   EffortLevel,
   ModelOption,
   PermissionModeId,
-  ParsedDirectives
+  ParsedDirectives,
+  PlanDecision
 } from './types'
 
 export const EFFORT_LEVELS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max']
@@ -250,4 +251,21 @@ export function worktreeSlug(nameOrBranch: string): string {
 /** Suggested branch name for a draft: `pb/<slug of the first line>` (slug max 40). */
 export function suggestBranchName(text: string): string {
   return `pb/${slug(text.trim().split(NL)[0] ?? '') || 'chat'}`
+}
+
+/**
+ * The message that carries a question answer when the live question is gone (the app was
+ * relaunched, the chat's Claude closed, or the CLI cancelled the dialog). Keys are question texts.
+ */
+export function staleAnswerText(answers: Record<string, string>): string {
+  return Object.entries(answers)
+    .map(([question, answer]) => `${question} → ${answer}`)
+    .join('\n')
+}
+
+/** The message that carries a plan decision when the live plan prompt is gone. */
+export function stalePlanText(decision: PlanDecision): string {
+  return decision.approve
+    ? 'I approve the plan. Go ahead.'
+    : `I don't approve the plan yet: ${decision.feedback}`
 }

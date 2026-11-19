@@ -5,7 +5,12 @@ import { promises as fs } from 'fs'
 import os from 'os'
 import { basename, join } from 'path'
 import { pathToFileURL } from 'url'
-import { DEFAULT_PERMISSION_MODE, DEFAULT_TOGGLES } from '../../shared/chat'
+import {
+  DEFAULT_PERMISSION_MODE,
+  DEFAULT_TOGGLES,
+  staleAnswerText,
+  stalePlanText
+} from '../../shared/chat'
 import { pathKey } from '../../shared/pathKey'
 import {
   IPC_CHANNELS,
@@ -752,11 +757,44 @@ async function answer(
   toolUseId: string,
   answers: Record<string, string> | null
 ): Promise<void> {
-  need().runner.answerQuestion(chatId, toolUseId, answers)
+  if (need().runner.answerQuestion(chatId, toolUseId, answers)) return
+  // The live question is gone (the app was relaunched, the chat's Claude closed after idling, or
+  // the CLI cancelled the dialog). Settle the card and send the answer as a normal message.
+  settleCard(chatId, toolUseId, (item) =>
+    item.kind === 'question'
+      ? { ...item, ...(answers ? { state: 'answered', answers } : { state: 'skipped' }) }
+      : null
+  )
+  if (answers) await sendStale(chatId, staleAnswerText(answers))
 }
 
 async function decidePlan(chatId: string, toolUseId: string, decision: PlanDecision): Promise<void> {
-  need().runner.decidePlan(chatId, toolUseId, decision)
+  if (need().runner.decidePlan(chatId, toolUseId, decision)) return
+  settleCard(chatId, toolUseId, (item) =>
+    item.kind === 'plan' ? { ...item, state: decision.approve ? 'approved' : 'rejected' } : null
+  )
+  if (decision.approve) await update(chatId, { permissionMode: 'bypassPermissions' })
+  await sendStale(chatId, stalePlanText(decision))
+}
+
+/** Updates a pending question/plan card whose live prompt is gone, so it stops looking open. */
+function settleCard(
+  chatId: string,
+  toolUseId: string,
+  settle: (item: ChatItem) => ChatItem | null
+): void {
+  const state = parserFor(chatId)
+  const item = state.items.get(toolUseId)
+  const next = item && settle(item)
+  if (!next) return
+  state.items.set(toolUseId, next)
+  sendItems({ chatId, upsert: [next] })
+}
+
+async function sendStale(chatId: string, text: string): Promise<void> {
+  const chat = findOwn(chatId)
+  if (!chat) return
+  await send({ chatId, text, attachments: [], toggles: chat.toggles })
 }
 
 async function decidePermission(
