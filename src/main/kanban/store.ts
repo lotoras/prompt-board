@@ -31,10 +31,13 @@ function broadcastChanged(state: KanbanState): void {
   }
 }
 
+const NEXT_UP_COLUMN_ID = 'next-up'
+
 function defaultColumns(): Board['columns'] {
   return [
     { id: FOR_LATER_COLUMN_ID, title: 'For Later', order: -1 },
     { id: 'todo', title: 'Todo', order: 0 },
+    { id: NEXT_UP_COLUMN_ID, title: 'Next up', order: 0.5 },
     { id: 'start-coding', title: 'Start coding', order: 1 },
     { id: 'doing', title: 'Doing', order: 2 },
     { id: DONE_COLUMN_ID, title: 'Done', order: 3 }
@@ -69,6 +72,25 @@ function migrateBoard(board: Board): boolean {
   return true
 }
 
+/** Insert "Next up" right after Todo (boards without a Todo column are left alone). */
+function migrateNextUpColumn(board: Board): boolean {
+  if (board.columns.some((c) => c.id === NEXT_UP_COLUMN_ID)) return false
+  const todo = board.columns.find((c) => c.id === 'todo')
+  if (!todo) return false
+
+  const after = board.columns
+    .filter((c) => c.order > todo.order)
+    .reduce<number | null>((min, c) => (min === null || c.order < min ? c.order : min), null)
+  const order = after === null ? todo.order + 1 : (todo.order + after) / 2
+
+  board.columns.splice(board.columns.indexOf(todo) + 1, 0, {
+    id: NEXT_UP_COLUMN_ID,
+    title: 'Next up',
+    order
+  })
+  return true
+}
+
 function migrateForLaterColumn(board: Board): boolean {
   if (board.columns.some((c) => c.id === FOR_LATER_COLUMN_ID)) return false
 
@@ -85,7 +107,8 @@ async function load(): Promise<KanbanState> {
   const migrated = cache.boards.reduce((any, b) => {
     const a = migrateBoard(b)
     const c = migrateForLaterColumn(b)
-    return a || c || any
+    const n = migrateNextUpColumn(b)
+    return a || c || n || any
   }, false)
   if (migrated) await persist()
   return cache

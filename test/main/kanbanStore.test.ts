@@ -36,6 +36,7 @@ describe('kanban/store', () => {
       expect(globalBoard?.columns).toEqual([
         { id: 'for-later', title: 'For Later', order: -1 },
         { id: 'todo', title: 'Todo', order: 0 },
+        { id: 'next-up', title: 'Next up', order: 0.5 },
         { id: 'start-coding', title: 'Start coding', order: 1 },
         { id: 'doing', title: 'Doing', order: 2 },
         { id: 'done', title: 'Done', order: 3 }
@@ -251,7 +252,7 @@ describe('kanban/store', () => {
         expect(board.columns[0].id).toBe(FOR_LATER_COLUMN_ID)
         const lowestOrder = Math.min(...board.columns.map((c) => c.order))
         expect(board.columns[0].order).toBe(lowestOrder)
-        expect(board.columns.slice(1)).toEqual(oldColumns)
+        expect(board.columns.slice(1).filter((c) => c.id !== 'next-up')).toEqual(oldColumns)
       }
     })
 
@@ -309,6 +310,68 @@ describe('kanban/store', () => {
       const persisted = JSON.parse(raw)
       const persistedBoard = persisted.boards.find((b: { projectKey: string }) => b.projectKey === 'proj-old')
       expect(persistedBoard.columns.some((c: { id: string }) => c.id === FOR_LATER_COLUMN_ID)).toBe(true)
+    })
+  })
+
+  describe('next-up column migration', () => {
+    it('inserts next-up right after todo on an existing board and persists it', async () => {
+      const file = join(tmpDir, 'boards.json')
+      await fs.writeFile(
+        file,
+        JSON.stringify({
+          boards: [
+            {
+              projectKey: 'proj-old',
+              columns: [
+                { id: 'for-later', title: 'For Later', order: -1 },
+                { id: 'todo', title: 'Todo', order: 0 },
+                { id: 'start-coding', title: 'Start coding', order: 1 },
+                { id: 'doing', title: 'Doing', order: 2 },
+                { id: 'done', title: 'Done', order: 3 }
+              ]
+            }
+          ],
+          cards: []
+        })
+      )
+
+      const { getBoards } = await loadStore()
+      const state = await getBoards()
+      const board = state.boards.find((b) => b.projectKey === 'proj-old')!
+      const sortedIds = [...board.columns].sort((a, b) => a.order - b.order).map((c) => c.id)
+      expect(sortedIds).toEqual(['for-later', 'todo', 'next-up', 'start-coding', 'doing', 'done'])
+      expect(board.columns.find((c) => c.id === 'next-up')!.title).toBe('Next up')
+
+      const persisted = JSON.parse(await fs.readFile(file, 'utf-8'))
+      const persistedBoard = persisted.boards.find((b: { projectKey: string }) => b.projectKey === 'proj-old')
+      expect(persistedBoard.columns.some((c: { id: string }) => c.id === 'next-up')).toBe(true)
+    })
+
+    it('is idempotent when next-up already exists', async () => {
+      const file = join(tmpDir, 'boards.json')
+      await fs.writeFile(
+        file,
+        JSON.stringify({
+          boards: [
+            {
+              projectKey: 'proj-x',
+              columns: [
+                { id: 'for-later', title: 'For Later', order: -1 },
+                { id: 'todo', title: 'Todo', order: 0 },
+                { id: 'next-up', title: 'Renamed', order: 0.7 },
+                { id: 'start-coding', title: 'Start coding', order: 1 }
+              ]
+            }
+          ],
+          cards: []
+        })
+      )
+
+      const { getBoards } = await loadStore()
+      const state = await getBoards()
+      const board = state.boards.find((b) => b.projectKey === 'proj-x')!
+      const nextUp = board.columns.filter((c) => c.id === 'next-up')
+      expect(nextUp).toEqual([{ id: 'next-up', title: 'Renamed', order: 0.7 }])
     })
   })
 
